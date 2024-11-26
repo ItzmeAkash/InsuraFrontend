@@ -98,7 +98,7 @@ const Chatbot = () => {
         user_id: userId, 
       });
 
-      // Split response into separate messages
+      // Splits response into separate messages
       setMessages((prev) => [
         ...prev,
         { sender: "bot", text: response.data.response },

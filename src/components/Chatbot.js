@@ -45,7 +45,7 @@ const Chatbot = () => {
   const sendInitialTrigger = async (name) => {
     // Send the "Hey" message after receiving the user's name
     try {
-      const response = await axios.post("http://localhost:8000/chat/", {
+      const response = await axios.post(" https://insurabackend.onrender.com/chat", {
         message: "Hey",
         user_id: name, 
       });
@@ -93,7 +93,7 @@ const Chatbot = () => {
 
     setLoading(true);
     try {
-      const response = await axios.post("http://localhost:8000/chat/", {
+      const response = await axios.post(" https://insurabackend.onrender.com/chat", {
         message: userInput,
         user_id: userId, 
       });
@@ -128,7 +128,7 @@ const Chatbot = () => {
 
     setLoading(true);
     try {
-      const response = await axios.post("http://localhost:8000/chat/", {
+      const response = await axios.post(" https://insurabackend.onrender.com/chat", {
         message: option,
         user_id: userId, 
       });

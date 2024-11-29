@@ -1,22 +1,23 @@
 import React from "react";
-import Chatbot from "./Chatbot"; // Adjust the path based on where Chatbot is located
+import Chatbot from "./Chatbot";
 
 const MainPage = () => {
   return (
     <div className="relative w-screen h-screen">
       {/* Full-Screen Background Image */}
       <div className="fixed inset-0">
-        <img
-          src="/InsuraMainPage.png" // Replace with the correct path to your uploaded image
-          alt="Background"
-          className="w-full h-full object-fill" // Ensures the image covers the screen proportionally
-        />
-      </div>
+  <img
+    src="/InsuraMainPage.png"
+    alt="Background"
+    className="h-full w-full object-cover sm:rounded-lg" 
+  />
+</div>
+
 
       {/* Content Overlay */}
       <div className="relative flex items-center justify-center h-full z-10">
         <h1 className="text-white text-4xl font-bold shadow-lg">
-         
+          {/* Add any content here */}
         </h1>
       </div>
 

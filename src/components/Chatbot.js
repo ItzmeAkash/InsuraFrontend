@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import axiosInstance from "../axiosInstance";
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -19,13 +19,22 @@ const Chatbot = () => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
 
+  const getCurrentTime = () => {
+    return new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true // Ensures AM/PM format
+    });
+  };
+  
+
   const sendHiddenMessage = async () => {
     setLoading(true);
     try {
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: "Hi there! My name is Insura, your AI insurance assistant. I will be happy to assist you with your insurance requirements." },
-        { sender: "bot", text: "Before we proceed, may I know your name?" },
+        { sender: "bot", text: "Hi there! My name is Insura, your AI insurance assistant. I will be happy to assist you with your insurance requirements.",time: getCurrentTime(), },
+        { sender: "bot", text: "Before we proceed, may I know your name?",time: getCurrentTime(),},
       ]);
       setAwaitingName(true); 
     } catch (error) {
@@ -35,6 +44,7 @@ const Chatbot = () => {
         {
           sender: "bot",
           text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
         },
       ]);
     } finally {
@@ -45,16 +55,16 @@ const Chatbot = () => {
   const sendInitialTrigger = async (name) => {
     // Send the "Hey" message after receiving the user's name
     try {
-      const response = await axios.post(" https://insurabackend.onrender.com/chat", {
+      const response = await axiosInstance.post("/chat", {
         message: "Hey",
         user_id: name, 
       });
 
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response },
+        { sender: "bot", text: response.data.response,time: getCurrentTime(), },
         ...(response.data.question
-          ? [{ sender: "bot", text: response.data.question }]
+          ? [{ sender: "bot", text: response.data.question,time: getCurrentTime(), }]
           : []),
       ]);
 
@@ -66,6 +76,7 @@ const Chatbot = () => {
         {
           sender: "bot",
           text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
         },
       ]);
     }
@@ -74,7 +85,7 @@ const Chatbot = () => {
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage = { sender: "user", text: input };
+    const userMessage = { sender: "user", text: input,time: getCurrentTime(), };
     setMessages((prev) => [...prev, userMessage]);
     const userInput = input;
     setInput("");
@@ -93,7 +104,7 @@ const Chatbot = () => {
 
     setLoading(true);
     try {
-      const response = await axios.post(" https://insurabackend.onrender.com/chat", {
+      const response = await axiosInstance.post("/chat", {
         message: userInput,
         user_id: userId, 
       });
@@ -101,9 +112,9 @@ const Chatbot = () => {
       // Splits response into separate messages
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response },
+        { sender: "bot", text: response.data.response,time: getCurrentTime(), },
         ...(response.data.question
-          ? [{ sender: "bot", text: response.data.question }]
+          ? [{ sender: "bot", text: response.data.question,time: getCurrentTime(), }]
           : []),
       ]);
 
@@ -115,6 +126,7 @@ const Chatbot = () => {
         {
           sender: "bot",
           text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
         },
       ]);
     } finally {
@@ -123,21 +135,21 @@ const Chatbot = () => {
   };
 
   const handleOptionClick = async (option) => {
-    const userMessage = { sender: "user", text: option };
+    const userMessage = { sender: "user", text: option ,time: getCurrentTime(),};
     setMessages((prev) => [...prev, userMessage]);
 
     setLoading(true);
     try {
-      const response = await axios.post(" https://insurabackend.onrender.com/chat", {
+      const response = await axiosInstance.post("/chat", {
         message: option,
         user_id: userId, 
       });
 
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response },
+        { sender: "bot", text: response.data.response,time: getCurrentTime(), },
         ...(response.data.question
-          ? [{ sender: "bot", text: response.data.question }]
+          ? [{ sender: "bot", text: response.data.question ,time: getCurrentTime(),}]
           : []),
       ]);
 
@@ -149,6 +161,7 @@ const Chatbot = () => {
         {
           sender: "bot",
           text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
         },
       ]);
     } finally {
@@ -198,7 +211,7 @@ const Chatbot = () => {
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-            {messages.map((msg, index) => (
+          {messages.map((msg, index) => (
               <div
                 key={index}
                 className={`mb-3 ${
@@ -213,6 +226,9 @@ const Chatbot = () => {
                   }`}
                 >
                   {msg.text}
+                <span className="text-sm text-gray-500 ml-2">
+        {msg.time}
+      </span>
                 </span>
               </div>
             ))}

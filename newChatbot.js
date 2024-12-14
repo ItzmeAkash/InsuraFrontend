@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import axiosInstance from "../axiosInstance";
-import { AiOutlinePaperClip,AiOutlineClose } from "react-icons/ai";
+import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
+import { IoGlobeOutline } from "react-icons/io5";
+
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -9,6 +11,8 @@ const Chatbot = () => {
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState("");
   const [awaitingName, setAwaitingName] = useState(false);
+  const [internetSearchEnabled, setInternetSearchEnabled] = useState(false);
+
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -20,7 +24,7 @@ const Chatbot = () => {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      
+
       const response = await axiosInstance.post("/upload/", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -77,8 +81,9 @@ const Chatbot = () => {
 
   const sendInitialTrigger = async (name) => {
     // Send the "Hey" message after receiving the user's name
+    const endpoint = internetSearchEnabled ? "/ask/" : "/chat/";
     try {
-      const response = await axiosInstance.post("/chat/", {
+      const response = await axiosInstance.post(endpoint, {
         message: "Hey",
         user_id: name,
       });
@@ -115,43 +120,40 @@ const Chatbot = () => {
 
   const handleSendMessage = async () => {
     if (!input.trim() && !file) return;
-  
-    
-  
-    // Show file name in chat for users
+
     const displayMessage = file ? file.name : input;
     const userMessage = {
       sender: "user",
       text: displayMessage,
       time: getCurrentTime(),
     };
-  
+
     setMessages((prev) => [...prev, userMessage]);
-  
+
     const userInput = input;
     setInput(""); // Reset the input field
-  
+
     if (awaitingName) {
-      setUserId(userInput); // Save the user's name
-      setAwaitingName(false); // Reset awaitingName flag
-      await sendInitialTrigger(userInput); // Trigger the "Hey" message
+      setUserId(userInput);
+      setAwaitingName(false);
+      await sendInitialTrigger(userInput);
       return;
     }
+
     setLoading(true);
     let filePath = null;
-  
-    // Upload file if it exists
+
     if (file) {
       try {
         const formData = new FormData();
         formData.append("file", file);
-  
+
         const uploadResponse = await axiosInstance.post("/upload/", formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
-  
-        filePath = uploadResponse.data.file_path; // Full path for backend
-        console.log("File uploaded successfully:",filePath);
+
+        filePath = uploadResponse.data.file_path;
+        console.log("File uploaded successfully:", filePath);
       } catch (uploadError) {
         console.error("File upload failed:", uploadError);
         setMessages((prev) => [
@@ -162,20 +164,21 @@ const Chatbot = () => {
             time: getCurrentTime(),
           },
         ]);
-        setFile(null); // Reset file on failure
+        setFile(null);
         setLoading(false);
         return;
       }
     }
-  
-    // Send chat message after file upload
+
+    // Determine endpoint based on search state
+    const endpoint = internetSearchEnabled ? "/ask/" : "/chat/";
+
     try {
-      const response = await axiosInstance.post("/chat/", {
-        message: filePath || userInput, // Send the full path or input text to backend
+      const response = await axiosInstance.post(endpoint, {
+        message: filePath || userInput,
         user_id: userId,
       });
-  
-      // Update chat messages
+
       setMessages((prev) => [
         ...prev,
         { sender: "bot", text: response.data.response, time: getCurrentTime() },
@@ -198,7 +201,7 @@ const Chatbot = () => {
             ]
           : []),
       ]);
-  
+
       setOptions(
         response.data.options ? response.data.options.split(", ") : []
       );
@@ -213,12 +216,10 @@ const Chatbot = () => {
         },
       ]);
     } finally {
-      setFile(null); // Clear the file after sending
+      setFile(null);
       setLoading(false);
     }
   };
-  
-
 
   const handleOptionClick = async (option) => {
     const userMessage = {
@@ -229,8 +230,9 @@ const Chatbot = () => {
     setMessages((prev) => [...prev, userMessage]);
 
     setLoading(true);
+    const endpoint = internetSearchEnabled ? "/ask/" : "/chat/";
     try {
-      const response = await axiosInstance.post("/chat/", {
+      const response = await axiosInstance.post(endpoint, {
         message: option,
         user_id: userId,
       });
@@ -276,13 +278,13 @@ const Chatbot = () => {
   };
 
   const [file, setFile] = useState(null);
-// Locate file in system
-const handleFileLocate = () => {
-  if (file) {
-    const fileURL = URL.createObjectURL(file);
-    window.open(fileURL, "_blank");
-  }
-};
+  // Locate file in system
+  const handleFileLocate = () => {
+    if (file) {
+      const fileURL = URL.createObjectURL(file);
+      window.open(fileURL, "_blank");
+    }
+  };
 
   // Handle file upload
   const handleFileAttach = (e) => {
@@ -376,59 +378,71 @@ const handleFileLocate = () => {
 
           {/* Input */}
           <div className="pb-4">
-  {file && (
-    <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
-      <span className="text-gray-700 text-sm">{file.name}</span>
-      <div className="flex space-x-2">
-        <button
-          className="text-blue-500 text-sm underline hover:text-blue-700"
-          onClick={handleFileLocate}
-        >
-          Locate File
-        </button>
-        <AiOutlineClose
-          className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
-          onClick={handleFileRemove}
-        />
-      </div>
-    </div>
-  )}
+            {file && (
+              <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
+                <span className="text-gray-700 text-sm">{file.name}</span>
+                <div className="flex space-x-2">
+                  <button
+                    className="text-blue-500 text-sm underline hover:text-blue-700"
+                    onClick={handleFileLocate}
+                  >
+                    Locate File
+                  </button>
+                  <AiOutlineClose
+                    className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
+                    onClick={handleFileRemove}
+                  />
+                </div>
+              </div>
+            )}
 
-  <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
-    {/* Paper Pin Icon */}
-    <label className="mr-2 cursor-pointer">
-      <input
-        type="file"
-        className="hidden"
-        onChange={handleFileAttach}
-      />
-      <AiOutlinePaperClip className="pl-2 h-8 w-8 text-gray-500 hover:text-black" />
-    </label>
+            <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
+              {/* Paper Pin Icon */}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileAttach}
+                />
 
-    {/* Message Input */}
-    <input
-      type="text"
-      value={input}
-      onChange={(e) => setInput(e.target.value)}
-      placeholder="Type your message..."
-      className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          handleSendMessage();
-        }
-      }}
-    />
+                {/* Paper Pin Icon */}
+                <AiOutlinePaperClip className="h-6 w-6 ml-2 text-gray-500 hover:text-black" />
+              </label>
+              <label className="ml-2">
+                <IoGlobeOutline
+                  className={`h-6 w-6 mr-2 cursor-pointer ${
+                    internetSearchEnabled ? "text-blue-500" : "text-gray-500"
+                  } hover:text-blue-700`}
+                  onClick={() =>
+                    setInternetSearchEnabled(!internetSearchEnabled)
+                  }
+                />
+              </label>
+              {/* Globe Icon */}
 
-    {/* Send Button */}
-    <button
-      onClick={handleSendMessage}
-      className="ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColortransition"
-    >
-      Send
-    </button>
-  </div>
-</div>
+              {/* Message Input */}
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type your message..."
+                className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSendMessage();
+                  }
+                }}
+              />
 
+              {/* Send Button */}
+              <button
+                onClick={handleSendMessage}
+                className="ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColortransition"
+              >
+                Send
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

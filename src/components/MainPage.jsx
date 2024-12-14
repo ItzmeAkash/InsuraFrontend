@@ -4,13 +4,15 @@ import Chatbot from "./Chatbot";
 const MainPage = () => {
   return (
     <div className="relative">
-    {/* Full-Screen Background Image */}
-    <div className="fixed inset-0">
-        <img
-          src="/InsuraMainPage.png"
-          alt="Background"
-          className="object-cover md:object-none object-left  w-full h-full "
-        />
+      {/* Full-Screen Background Image */}
+      <div className="fixed inset-0">
+        <div className="w-full h-full">
+          <img
+            src="/InsuraMainPage.png"
+            alt="Background"
+            className="w-full h-full object-cover sm:w-69 h-full object-left md:w-69 h-full"
+          />
+        </div>
       </div>
       {/* Content Overlay */}
       <div className="relative flex items-center justify-center h-full z-10">

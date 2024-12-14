@@ -310,7 +310,7 @@ const handleFileLocate = () => {
       </button>
 
       {isChatOpen && (
-        <div className="fixed bottom-20 right-5 w-84 bg-white rounded-lg shadow-lg flex flex-col max-h-custom overflow-hidden">
+        <div className="fixed bottom-20 right-5 w-80 bg-white rounded-lg shadow-lg flex flex-col max-h-custom overflow-hidden">
           {/* Header */}
           <div className="bg-white text-black flex items-center justify-end p-4 border-t-8 border-chatbotHeaderColor">
             <div className="flex flex-col items-start space-y-1">
@@ -339,7 +339,7 @@ const handleFileLocate = () => {
                       ? "bg-botBackgroundColor text-black border border-black-500"
                       : "bg-sendColor text-black"
                   }`}
-                  style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
+                  style={{ minHeight: "2.5rem" }}
                 >
                   {msg.text}
                   <span className="absolute bottom-1 right-2 text-sm text-gray-500">

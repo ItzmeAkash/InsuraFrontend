@@ -384,7 +384,7 @@ const handleFileLocate = () => {
           className="text-blue-500 text-sm underline hover:text-blue-700"
           onClick={handleFileLocate}
         >
-          Locate File
+          View
         </button>
         <AiOutlineClose
           className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"

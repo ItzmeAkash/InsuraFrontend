@@ -197,6 +197,15 @@ const Chatbot = () => {
               },
             ]
           : []),
+          ...(response.data.link
+            ? [
+                {
+                  sender: "bot",
+                  text: response.data.link,
+                  time: getCurrentTime(),
+                },
+              ]
+            : []),
       ]);
   
       setOptions(
@@ -326,7 +335,7 @@ const handleFileLocate = () => {
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-            {messages.map((msg, index) => (
+          {messages.map((msg, index) => (
               <div
                 key={index}
                 className={`mb-3 ${
@@ -341,13 +350,25 @@ const handleFileLocate = () => {
                   }`}
                   style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
                 >
-                  {msg.text}
+                   {msg.text.startsWith("https") ? (
+          <a
+            href={msg.text}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 underline"
+          >
+            {msg.text}
+          </a>
+        ) : (
+          msg.text
+        )}
                   <span className="absolute bottom-1 right-2 text-sm text-gray-500">
                     {msg.time}
                   </span>
                 </span>
               </div>
             ))}
+
 
             {loading && messages.length > 0 && (
               <div className="mb-3 text-left">

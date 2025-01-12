@@ -50,7 +50,7 @@ const Chatbot = () => {
         ...prev,
         {
           sender: "bot",
-          text: "Hi there! My name is Insura, your AI insurance assistant. I will be happy to assist you with your insurance requirements.",
+          text: "Hi there! My name is Insura from Wehbe Insurance Broker, your AI insurance assistant. I will be happy to assist you with your insurance requirements.",
           time: getCurrentTime(),
         },
         {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import axiosInstance from "../../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
-import { Volume2, VolumeX } from "lucide-react";
+
 
 const VoiceBot = () => {
   const [messages, setMessages] = useState([]);

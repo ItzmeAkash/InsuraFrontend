@@ -25,12 +25,42 @@ const VoiceBot = () => {
       const initVoice = () => {
         const synth = window.speechSynthesis;
         const voices = synth.getVoices();
-        const femaleVoice = voices.find(voice => voice.name.includes('female') || voice.name.includes('Female'));
-        if (femaleVoice) {
-          window.femaleVoice = femaleVoice;
+        
+        // Detect operating system
+        const isMac = /Mac/.test(navigator.platform);
+        
+        let selectedVoice;
+        
+        if (isMac) {
+          // For Mac (Safari and Chrome), prefer British English female voice
+          selectedVoice = voices.find(
+            voice => 
+              (voice.name.includes('Samantha') || // Default Mac voice
+               voice.name.includes('Kate') ||     // British voice
+               voice.name.toLowerCase().includes('british') &&
+               voice.name.toLowerCase().includes('female'))
+          );
+        } else {
+          // For Windows, select the first female voice
+          selectedVoice = voices.find(
+            voice => 
+              voice.name.toLowerCase().includes('female') ||
+              voice.name.includes('Zira') ||      // Common Windows female voice
+              voice.name.includes('Microsoft Eva')
+          );
+        }
+      
+        // Fallback to any available voice if no matching voice is found
+        if (!selectedVoice && voices.length > 0) {
+          selectedVoice = voices[0];
+        }
+      
+        if (selectedVoice) {
+          window.femaleVoice = selectedVoice;
         }
       };
-  
+      
+      // Initialize voice when voices are loaded
       if (window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = initVoice;
       }
@@ -148,20 +178,35 @@ const VoiceBot = () => {
           time: getCurrentTime(),
         },
       ];
-      
-      setMessages(prev => [...prev, ...newMessages]);
-      
-      // Concatenate all bot messages into a single speech text
-      const speechText = newMessages
-        .filter(msg => msg.sender === 'bot')
-        .map(msg => msg.text)
-        .join('. ');
-      
-      // Only speak once
-      if (isVoiceEnabled) {
-        latestBotMessage.current = speechText;
-        speechQueue.current = [speechText];
-        processNextInQueue();
+  
+      // Add messages one by one with a delay
+      for (let i = 0; i < newMessages.length; i++) {
+        const message = newMessages[i];
+        
+        // Add message to chat
+        setMessages(prev => [...prev, message]);
+        
+        // Speak the current message
+        if (isVoiceEnabled) {
+          // Wait for the previous speech to finish before starting the next one
+          await new Promise((resolve) => {
+            const utterance = new SpeechSynthesisUtterance(message.text);
+            
+            if (window.femaleVoice) {
+              utterance.voice = window.femaleVoice;
+            }
+            
+            utterance.onend = resolve;
+            utterance.onerror = resolve;
+            
+            // Cancel any ongoing speech before starting new one
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utterance);
+          });
+          
+          // Add a small pause between messages
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
       
       setAwaitingName(true);

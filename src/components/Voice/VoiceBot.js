@@ -20,7 +20,7 @@ const VoiceBot = () => {
 
 
 
-    // Initialize speech synthesis with female voice
+    // Initialize speech synthesis with female voices
     useEffect(() => {
       const initVoice = () => {
         const synth = window.speechSynthesis;

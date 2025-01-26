@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import axiosInstance from "../../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 
-
 const VoiceBot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -12,125 +11,11 @@ const VoiceBot = () => {
   const [userId, setUserId] = useState("");
   const [awaitingName, setAwaitingName] = useState(false);
   const messagesEndRef = useRef(null);
-  const speechQueue = useRef([]);
-  const currentlySpeaking = useRef(false);
-  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
-  const latestBotMessage = useRef(null);
-  const shouldSpeakOnOpen = useRef(true);
-
-
-
-    // Initialize speech synthesis with female voices
-    useEffect(() => {
-      const initVoice = () => {
-        const synth = window.speechSynthesis;
-        const voices = synth.getVoices();
-        
-        // Detect operating system
-        const isMac = /Mac/.test(navigator.platform);
-        
-        let selectedVoice;
-        
-        if (isMac) {
-          // For Mac (Safari and Chrome), prefer British English female voice
-          selectedVoice = voices.find(
-            voice => 
-              (voice.name.includes('Samantha') || // Default Mac voice
-               voice.name.includes('Kate') ||     // British voice
-               voice.name.toLowerCase().includes('british') &&
-               voice.name.toLowerCase().includes('female'))
-          );
-        } else {
-          // For Windows, select the first female voice
-          selectedVoice = voices.find(
-            voice => 
-              voice.name.toLowerCase().includes('female') ||
-              voice.name.includes('Zira') ||      // Common Windows female voice
-              voice.name.includes('Microsoft Eva')
-          );
-        }
-      
-        // Fallback to any available voice if no matching voice is found
-        if (!selectedVoice && voices.length > 0) {
-          selectedVoice = voices[0];
-        }
-      
-        if (selectedVoice) {
-          window.femaleVoice = selectedVoice;
-        }
-      };
-      
-      // Initialize voice when voices are loaded
-      if (window.speechSynthesis.onvoiceschanged !== undefined) {
-        window.speechSynthesis.onvoiceschanged = initVoice;
-      }
-      initVoice();
-    }, []);
-
-
-
-    const speakMessage = (text) => {
-      if (!text || text.startsWith('http') || !isVoiceEnabled) return;
-      
-      latestBotMessage.current = text;
-  
-      speechQueue.current.push(text);
-      if (!currentlySpeaking.current) {
-        processNextInQueue();
-      }
-    };
-
-
-
-  const processNextInQueue = () => {
-    if (speechQueue.current.length === 0 || !isVoiceEnabled) {
-      currentlySpeaking.current = false;
-      return;
-    }
-
-    currentlySpeaking.current = true;
-    const text = speechQueue.current.shift();
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    if (window.femaleVoice) {
-      utterance.voice = window.femaleVoice;
-    }
-
-    utterance.onend = () => {
-      processNextInQueue();
-    };
-
-    utterance.onerror = () => {
-      processNextInQueue();
-    };
-
-    window.speechSynthesis.speak(utterance);
-  };
-
-  
+  const audioRef = useRef(null); // Reference for the audio element
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
-  const addMessagesToChat = (newMessages) => {
-    setMessages(prev => {
-      const updatedMessages = [...prev, ...newMessages];
-      
-      // Update latest bot message and speak bot messages
-      newMessages.forEach(msg => {
-        if (msg.sender === 'bot' && !msg.text.startsWith('http')) {
-          latestBotMessage.current = msg.text;
-          if (isVoiceEnabled) {
-            speakMessage(msg.text);
-          }
-        }
-      });
-      
-      return updatedMessages;
-    });
-  };
-
 
   const handleFileUpload = async () => {
     if (!file) return null;
@@ -148,9 +33,6 @@ const VoiceBot = () => {
     }
   };
 
-
-
-
   useEffect(() => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
@@ -163,10 +45,65 @@ const VoiceBot = () => {
     });
   };
 
+  const sendToDeepgram = async (text) => {
+    const deepgramApiKey = 'fb2ee994547c33bf1ce4eb418d61106aa218f30c';
+    try {
+      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-luna-en', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${deepgramApiKey}`,
+          'Content-Type': 'application/json',
+          'accept': 'text/plain'
+        },
+        body: JSON.stringify({ text: text })
+      });
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      audioQueue.push(audioUrl);
+      textQueue.push(text);
+      if (!isPlaying) {
+        playNextAudio();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  let audioQueue = [];
+  let textQueue = [];
+  let isPlaying = false;
+
+  const playNextAudio = () => {
+    if (audioQueue.length > 0) {
+      const audioUrl = audioQueue.shift();
+      const text = textQueue.shift();
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio; // Set the audio reference
+      isPlaying = true;
+      audio.play();
+      audio.onended = () => {
+        isPlaying = false;
+        playNextAudio();
+      };
+    }
+  };
+
+  const stopAudioPlayback = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      isPlaying = false;
+      audioQueue = [];
+      textQueue = [];
+    }
+  };
+
   const sendHiddenMessage = async () => {
     setLoading(true);
     try {
-      const newMessages = [
+      const botMessages = [
         {
           sender: "bot",
           text: "Hi there! My name is Insura from Wehbe Insurance Broker, your AI insurance assistant. I will be happy to assist you with your insurance requirements.",
@@ -179,188 +116,173 @@ const VoiceBot = () => {
         },
       ];
   
-      // Add messages one by one with a delay
-      for (let i = 0; i < newMessages.length; i++) {
-        const message = newMessages[i];
-        
-        // Add message to chat
-        setMessages(prev => [...prev, message]);
-        
-        // Speak the current message
-        if (isVoiceEnabled) {
-          // Wait for the previous speech to finish before starting the next one
-          await new Promise((resolve) => {
-            const utterance = new SpeechSynthesisUtterance(message.text);
-            
-            if (window.femaleVoice) {
-              utterance.voice = window.femaleVoice;
-            }
-            
-            utterance.onend = resolve;
-            utterance.onerror = resolve;
-            
-            // Cancel any ongoing speech before starting new one
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utterance);
-          });
-          
-          // Add a small pause between messages
-          await new Promise(resolve => setTimeout(resolve, 500));
+      // Function to handle displaying and speaking a message
+      const displayAndSpeakMessage = async (message) => {
+        setMessages((prev) => [...prev, message]);
+        await sendToDeepgram(message.text);
+      };
+  
+      // Display and speak the first message, then the second message after the first one finishes
+      await displayAndSpeakMessage(botMessages[0]);
+      const checkAudioFinishedInterval = setInterval(() => {
+        if (!isPlaying) {
+          clearInterval(checkAudioFinishedInterval);
+          displayAndSpeakMessage(botMessages[1]);
+          setAwaitingName(true);
         }
-      }
-      
-      setAwaitingName(true);
+      }, 100); // Check every 100ms if the audio has finished
+  
     } catch (error) {
       console.error("Error sending hidden message:", error);
-      const errorMessage = {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again later!",
-        time: getCurrentTime(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      if (isVoiceEnabled) {
-        speakMessage(errorMessage.text);
-      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
   };
+
   const sendInitialTrigger = async (name) => {
+    // Send the "Hey" message after receiving the user's name
     try {
       const response = await axiosInstance.post("/chat/", {
         message: "Hey",
         user_id: name,
       });
 
-      const newMessages = [
+      const botMessages = [
         { sender: "bot", text: response.data.response, time: getCurrentTime() },
-        ...(response.data.question ? [{
-          sender: "bot",
-          text: response.data.question,
-          time: getCurrentTime(),
-        }] : []),
+        ...(response.data.question
+          ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
+          : []),
       ];
 
-      setMessages(prev => [...prev, ...newMessages]);
-      
-      // Speak new messages
-      newMessages.forEach(msg => {
-        speakMessage(msg.text);
-      });
-
+      setMessages((prev) => [...prev, ...botMessages]);
       setOptions(response.data.options ? response.data.options.split(", ") : []);
+
+      // Send messages to Deepgram
+      botMessages.forEach(msg => sendToDeepgram(msg.text));
     } catch (error) {
       console.error("Error triggering initial message:", error);
-      const errorMessage = {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again later!",
-        time: getCurrentTime(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      speakMessage(errorMessage.text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
+        },
+      ]);
     }
   };
 
   const handleSendMessage = async () => {
     if (!input.trim() && !file) return;
 
-    stopSpeech();
+    stopAudioPlayback(); // Stop audio playback when sending a message
 
     const displayMessage = file ? file.name : input;
     const userMessage = {
-      sender: "user",
-      text: displayMessage,
-      time: getCurrentTime(),
+        sender: "user",
+        text: displayMessage,
+        time: getCurrentTime(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
+
     const userInput = input;
-    setInput("");
+    setInput(""); // Reset the input field
 
     if (awaitingName) {
-      setUserId(userInput);
-      setAwaitingName(false);
-      await sendInitialTrigger(userInput);
-      return;
+        setUserId(userInput); // Save the user's name
+        setAwaitingName(false); // Reset awaitingName flag
+        await sendInitialTrigger(userInput); // Trigger the "Hey" message
+        return;
     }
-
     setLoading(true);
     let filePath = null;
 
+    // Upload file if it exists
     if (file) {
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const uploadResponse = await axiosInstance.post("/upload/", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-        filePath = uploadResponse.data.file_path;
-      } catch (uploadError) {
-        console.error("File upload failed:", uploadError);
-        const errorMessage = {
-          sender: "bot",
-          text: "File upload failed. Please try again later.",
-          time: getCurrentTime(),
-        };
-        setMessages(prev => [...prev, errorMessage]);
-        speakMessage(errorMessage.text);
-        setFile(null);
-        setLoading(false);
-        return;
-      }
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const uploadResponse = await axiosInstance.post("/upload/", formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+
+            filePath = uploadResponse.data.file_path; // Full path for backend
+            console.log("File uploaded successfully:", filePath);
+        } catch (uploadError) {
+            console.error("File upload failed:", uploadError);
+            setMessages((prev) => [
+                ...prev,
+                {
+                    sender: "bot",
+                    text: "File upload failed. Please try again later.",
+                    time: getCurrentTime(),
+                },
+            ]);
+            setFile(null); // Reset file on failure
+            setLoading(false);
+            return;
+        }
     }
 
+    // Send chat message after file upload
     try {
-      const response = await axiosInstance.post("/chat/", {
-        message: filePath || userInput,
-        user_id: userId,
-      });
+        const response = await axiosInstance.post("/chat/", {
+            message: filePath || userInput, // Send the full path or input text to backend
+            user_id: userId,
+        });
 
-      const newMessages = [
-        { sender: "bot", text: response.data.response, time: getCurrentTime() },
-        ...(response.data.question ? [{
-          sender: "bot",
-          text: response.data.question,
-          time: getCurrentTime(),
-        }] : []),
-        ...(response.data.example ? [{
-          sender: "bot",
-          text: response.data.example,
-          time: getCurrentTime(),
-        }] : []),
-        ...(response.data.link ? [{
-          sender: "bot",
-          text: response.data.link,
-          time: getCurrentTime(),
-        }] : []),
-      ];
+        const botMessages = [
+            { sender: "bot", text: response.data.response, time: getCurrentTime() },
+            ...(response.data.question
+                ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
+                : []),
+            ...(response.data.example
+                ? [{ sender: "bot", text: response.data.example, time: getCurrentTime() }]
+                : []),
+            ...(response.data.link
+                ? [{ sender: "bot", text: response.data.link, time: getCurrentTime() }]
+                : []),
+        ];
 
-      setMessages(prev => [...prev, ...newMessages]);
-      
-      // Speak new messages
-      newMessages.forEach(msg => {
-        speakMessage(msg.text);
-      });
+        setMessages((prev) => [...prev, ...botMessages]);
+        setOptions(response.data.options ? response.data.options.split(", ") : []);
 
-      setOptions(response.data.options ? response.data.options.split(", ") : []);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      const errorMessage = {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again later!",
-        time: getCurrentTime(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      speakMessage(errorMessage.text);
+        // Send messages to Deepgram in the specified order
+        if (botMessages.length > 1) {
+            await sendToDeepgram(botMessages[botMessages.length - 2].text); // Second last message
+            await sendToDeepgram(botMessages[botMessages.length - 1].text); // Last message
+        } else if (botMessages.length === 1) {
+            await sendToDeepgram(botMessages[0].text); // Only one message to send
+        }
+    } catch (chatError) {
+        console.error("Error sending message:", chatError);
+        setMessages((prev) => [
+            ...prev,
+            {
+                sender: "bot",
+                text: "Sorry, something went wrong. Please try again later!",
+                time: getCurrentTime(),
+            },
+        ]);
     } finally {
-      setFile(null);
-      setLoading(false);
+        setFile(null); // Clear the file after sending
+        setLoading(false);
     }
-  };
-  
+};
 
   const handleOptionClick = async (option) => {
-    stopSpeech();
+    stopAudioPlayback(); // Stop audio playback when an option is clicked
+
     const userMessage = {
       sender: "user",
       text: option,
@@ -375,95 +297,68 @@ const VoiceBot = () => {
         user_id: userId,
       });
 
-      const newMessages = [
+      const botMessages = [
         { sender: "bot", text: response.data.response, time: getCurrentTime() },
         ...(response.data.question
-          ? [
-              {
-                sender: "bot",
-                text: response.data.question,
-                time: getCurrentTime(),
-              },
-            ]
+          ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
           : []),
       ];
 
-      setMessages((prev) => [...prev, ...newMessages]);
-      
-      // Speak new messages
-      newMessages.forEach(msg => {
-        speakMessage(msg.text);
-      });
+      setMessages((prev) => [...prev, ...botMessages]);
+      setOptions(response.data.options ? response.data.options.split(", ") : []);
 
-      setOptions(
-        response.data.options ? response.data.options.split(", ") : []
-      );
+      // Send messages to Deepgram
+      botMessages.forEach(msg => sendToDeepgram(msg.text));
     } catch (error) {
       console.error("Error sending option:", error);
-      const errorMessage = {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again later!",
-        time: getCurrentTime(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      speakMessage(errorMessage.text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
+  const speakLastMessage = () => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      // Only speak the message if it's not a link
+      if (!lastMessage.text.startsWith("https")) {
+        sendToDeepgram(lastMessage.text);
+      }
+    }
+  };
 
- // Function to stop all speech
- const stopSpeech = () => {
-  window.speechSynthesis.cancel();
-  speechQueue.current = [];
-  currentlySpeaking.current = false;
-};
-
-
-  // Modified handleToggleChat to handle speech on open/close
   const handleToggleChat = () => {
     setIsChatOpen((prev) => {
       const willOpen = !prev;
-      if (!willOpen) {
-        stopSpeech();
-        shouldSpeakOnOpen.current = true;
-      } else {
+      if (willOpen) {
         if (messages.length === 0) {
           sendHiddenMessage();
-        } else if (latestBotMessage.current && isVoiceEnabled && shouldSpeakOnOpen.current) {
-          // Speak the latest bot message when reopening
-          speechQueue.current = [latestBotMessage.current];
-          processNextInQueue();
-          shouldSpeakOnOpen.current = false; // Reset after speaking
+        } else {
+          speakLastMessage();
         }
+      } else {
+        stopAudioPlayback(); // Stop audio playback when the chat is closed
       }
       return willOpen;
     });
   };
 
   const [file, setFile] = useState(null);
-// Locate file in system
-const handleFileLocate = () => {
-  if (file) {
-    const fileURL = URL.createObjectURL(file);
-    window.open(fileURL, "_blank");
-  }
-};
 
-const handleVoiceToggle = () => {
-  setIsVoiceEnabled(prev => {
-    if (prev) {
-      stopSpeech();
-      shouldSpeakOnOpen.current = true;
-    } else {
-      shouldSpeakOnOpen.current = false; // Prevent speaking on next chat open
+  const handleFileLocate = () => {
+    if (file) {
+      const fileURL = URL.createObjectURL(file);
+      window.open(fileURL, "_blank");
     }
-    return !prev;
-  });
-};
+  };
 
-  // Handle file upload
   const handleFileAttach = (e) => {
     const uploadedFile = e.target.files[0];
     if (uploadedFile) {
@@ -471,53 +366,27 @@ const handleVoiceToggle = () => {
     }
   };
 
-  // Handle file removal
   const handleFileRemove = () => {
     setFile(null);
   };
-  useEffect(() => {
-    // Handle page refresh or closing
-    const handleBeforeUnload = () => {
-      stopSpeech();
-    };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    // Cleanup on component unmount
-    return () => {
-      stopSpeech();
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
   return (
     <div className="relative">
-    <button
-      className="fixed bottom-5 right-5 bg-gray-600 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-lg hover:bg-gray-600 transition"
-      onClick={handleToggleChat}
-    >
-      <img
-        className="w-14 h-14 rounded-full object-cover"
-        src="Insura.jpeg"
-        alt="Chatbot Avatar"
-      />
-    </button>
+      <button
+        className="fixed bottom-5 right-5 bg-gray-600 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-lg hover:bg-gray-600 transition"
+        onClick={handleToggleChat}
+      >
+        <img
+          className="w-14 h-14 rounded-full object-cover"
+          src="Insura.jpeg"
+          alt="Chatbot Avatar"
+        />
+      </button>
 
-    {isChatOpen && (
-      <div className="fixed bottom-20 right-5 w-84 bg-white rounded-lg shadow-lg flex flex-col max-h-custom overflow-hidden">
-        <div className="bg-white text-black flex items-center justify-between p-4 border-t-8 border-chatbotHeaderColor">
-          <div className="flex items-center">
-            {/* <button
-              onClick={handleVoiceToggle}
-              className="mr-2 p-2 rounded-full hover:bg-gray-100"
-              title={isVoiceEnabled ? "Disable voice" : "Enable voice"}
-            >
-              {isVoiceEnabled ? (
-                <Volume2 className="h-6 w-6" />
-              ) : (
-                <VolumeX className="h-6 w-6" />
-              )}
-            </button> */}
-          </div>
+      {isChatOpen && (
+        <div className="fixed bottom-20 right-5 w-84 bg-white rounded-lg shadow-lg flex flex-col max-h-custom overflow-hidden">
+          {/* Header */}
+          <div className="bg-white text-black flex items-center justify-end p-4 border-t-8 border-chatbotHeaderColor">
             <div className="flex flex-col items-start space-y-1">
               <h3 className="font-semibold text-lg">Insura</h3>
               {loading && <div className="text-black text-sm">Typing...</div>}
@@ -531,7 +400,7 @@ const handleVoiceToggle = () => {
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-          {messages.map((msg, index) => (
+            {messages.map((msg, index) => (
               <div
                 key={index}
                 className={`mb-3 ${
@@ -546,25 +415,24 @@ const handleVoiceToggle = () => {
                   }`}
                   style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
                 >
-                   {msg.text.startsWith("https") ? (
-          <a
-            href={msg.text}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 underline"
-          >
-            {msg.text}
-          </a>
-        ) : (
-          msg.text
-        )}
+                  {msg.text.startsWith("https") ? (
+                    <a
+                      href={msg.text}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 underline"
+                    >
+                      {msg.text}
+                    </a>
+                  ) : (
+                    msg.text
+                  )}
                   <span className="absolute bottom-1 right-2 text-sm text-gray-500">
                     {msg.time}
                   </span>
                 </span>
               </div>
             ))}
-
 
             {loading && messages.length > 0 && (
               <div className="mb-3 text-left">
@@ -593,62 +461,62 @@ const handleVoiceToggle = () => {
 
           {/* Input */}
           <div className="pb-4">
-  {file && (
-    <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
-      <span className="text-gray-700 text-sm">{file.name}</span>
-      <div className="flex space-x-2">
-        <button
-          className="text-blue-500 text-sm underline hover:text-blue-700"
-          onClick={handleFileLocate}
-        >
-          View
-        </button>
-        <AiOutlineClose
-          className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
-          onClick={handleFileRemove}
-        />
-      </div>
-    </div>
-  )}
+            {file && (
+              <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
+                <span className="text-gray-700 text-sm">{file.name}</span>
+                <div className="flex space-x-2">
+                  <button
+                    className="text-blue-500 text-sm underline hover:text-blue-700"
+                    onClick={handleFileLocate}
+                  >
+                    View
+                  </button>
+                  <AiOutlineClose
+                    className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
+                    onClick={handleFileRemove}
+                  />
+                </div>
+              </div>
+            )}
 
-  <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
-    {/* Paper Pin Icon */}
-    <label className="mr-2 cursor-pointer">
-      <input
-        type="file"
-        className="hidden"
-        onChange={handleFileAttach}
-      />
-      <AiOutlinePaperClip className="pl-2 h-8 w-8 text-gray-500 hover:text-black" />
-    </label>
+            <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
+              {/* Paper Pin Icon */}
+              <label className="mr-2 cursor-pointer">
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileAttach}
+                />
+                <AiOutlinePaperClip className="pl-2 h-8 w-8 text-gray-500 hover:text-black" />
+              </label>
 
-    {/* Message Input */}
-    <input
-      type="text"
-      value={input}
-      onChange={(e) => setInput(e.target.value)}
-      placeholder="Type your message..."
-      className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          handleSendMessage();
-        }
-      }}
-    />
+              {/* Message Input */}
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type your message..."
+                className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSendMessage();
+                  }
+                }}
+              />
 
-    {/* Send Button */}
-    <button
-      onClick={handleSendMessage}
-      className="ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColortransition"
-    >
-      Send
-    </button>
-  </div>
-</div>
-
+              {/* Send Button */}
+              <button
+                onClick={handleSendMessage}
+                className="ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColortransition"
+              >
+                Send
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 };
+
 export default VoiceBot;

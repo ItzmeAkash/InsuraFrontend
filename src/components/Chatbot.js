@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import axiosInstance from "../axiosInstance";
 import { AiOutlinePaperClip,AiOutlineClose } from "react-icons/ai";
+import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
+
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -10,30 +12,89 @@ const Chatbot = () => {
   const [userId, setUserId] = useState("");
   const [awaitingName, setAwaitingName] = useState(false);
   const messagesEndRef = useRef(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [extractedInfo, setExtractedInfo] = useState(null);
+  const [editingField, setEditingField] = useState(null);
+  const [editValue, setEditValue] = useState("");
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleFileUpload = async () => {
-    if (!file) return null;
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      const response = await axiosInstance.post("/upload/", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return response.data.filePath; // Adjust based on your API response
-    } catch (error) {
-      console.error("File upload failed:", error);
-      return null;
-    }
-  };
+
 
   useEffect(() => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
+
+  const formatExtractedInfoAsText = (info) => {
+    if (!info) return '';
+    
+    return Object.entries(info)
+      .map(([key, value]) => {
+        // Convert snake_case to Title Case
+        const formattedKey = key
+          .split('_')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        return `${formattedKey}: ${value}`;
+      })
+      .join('\n');
+  };
+  
+  const handleFileAttach = async (e) => {
+    const uploadedFile = e.target.files[0];
+    if (uploadedFile) {
+      setLoading(true);
+      
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      formData.append('user_id', userId);
+
+      try {
+        const response = await axiosInstance.post("/extract-image/", formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+
+        console.log('Extracted Information:', response.data);
+        setExtractedInfo(response.data);
+
+      } catch (error) {
+        console.error("Error processing document:", error);
+        setMessages(prev => [...prev, {
+          sender: "bot",
+          text: "Sorry, I couldn't process your document. Please try again.",
+          time: getCurrentTime()
+        }]);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+
+
+  const handleEditField = (field, value) => {
+    setEditingField(field);
+    setEditValue(value);
+  };
+
+const handleSaveField = (field) => {
+    setExtractedInfo(prev => ({
+      ...prev,
+      [field]: editValue
+    }));
+    setEditingField(null);
+    setEditValue("");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingField(null);
+    setEditValue("");
+  };
+
 
   const getCurrentTime = () => {
     return new Date().toLocaleTimeString([], {
@@ -113,120 +174,164 @@ const Chatbot = () => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim() && !file) return;
-  
-    
-  
-    // Show file name in chat for users
-    const displayMessage = file ? file.name : input;
-    const userMessage = {
-      sender: "user",
-      text: displayMessage,
-      time: getCurrentTime(),
+  const handleSendMessage = async (extractedData = null) => {
+    const getCurrentTime = () => {
+      return new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
     };
   
-    setMessages((prev) => [...prev, userMessage]);
+    const isCircularReference = (obj, seen = new WeakSet()) => {
+      if (obj && typeof obj === 'object') {
+        if (seen.has(obj)) {
+          return true;
+        }
+        seen.add(obj);
+        for (const key in obj) {
+          if (obj.hasOwnProperty(key) && isCircularReference(obj[key], seen)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
   
-    const userInput = input;
-    setInput(""); // Reset the input field
+    const sanitizeData = (value, seen = new WeakSet()) => {
+      if (value === null || typeof value !== 'object') {
+        return value;
+      }
   
-    if (awaitingName) {
-      setUserId(userInput); // Save the user's name
-      setAwaitingName(false); // Reset awaitingName flag
-      await sendInitialTrigger(userInput); // Trigger the "Hey" message
-      return;
-    }
-    setLoading(true);
-    let filePath = null;
+      if (Array.isArray(value)) {
+        return value.map(item => sanitizeData(item, seen));
+      }
   
-    // Upload file if it exists
-    if (file) {
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
+      if (value instanceof Element || 
+          value instanceof HTMLElement || 
+          value === window || 
+          value === document || 
+          typeof value === 'function' ||
+          isCircularReference(value, seen)) {
+        return null;
+      }
   
-        const uploadResponse = await axiosInstance.post("/upload/", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+      const sanitized = {};
+      seen.add(value);
+      for (const [key, val] of Object.entries(value)) {
+        if (val !== window && val !== document && val !== null) {
+          sanitized[key.toLowerCase()] = sanitizeData(val, seen);
+        }
+      }
+      return sanitized;
+    };
   
-        filePath = uploadResponse.data.file_path; // Full path for backend
-        console.log("File uploaded successfully:",filePath);
-      } catch (uploadError) {
-        console.error("File upload failed:", uploadError);
-        setMessages((prev) => [
-          ...prev,
-          {
-            sender: "bot",
-            text: "File upload failed. Please try again later.",
-            time: getCurrentTime(),
-          },
-        ]);
-        setFile(null); // Reset file on failure
-        setLoading(false);
+    const formatMessageText = (extractedData, input) => {
+      if (extractedData) {
+        const sanitizedData = sanitizeData(extractedData);
+        if (sanitizedData && Object.keys(sanitizedData).length > 0) {
+          return JSON.stringify(sanitizedData);
+        }
+        return null;
+      }
+      return input ? input.trim() : "";
+    };
+  
+    try {
+      const messageText = formatMessageText(extractedData, input);
+      if (!messageText) return;
+  
+      // Create user message object for backend processing
+      const userMessage = {
+        sender: "user",
+        text: messageText,
+        time: getCurrentTime()
+      };
+  
+      // Display a fixed success message in the UI when extracted data is present
+      const displayMessageText = extractedData ? "Document Upload successfully" : messageText;
+  
+      // Set message in state for UI
+      setMessages(prev => [...prev, {
+        sender: "user",
+        text: displayMessageText,
+        time: getCurrentTime()
+      }]);
+  
+      if (!extractedData) {
+        setInput("");
+      }
+  
+      if (awaitingName) {
+        setUserId(messageText);
+        setAwaitingName(false);
+        await sendInitialTrigger(messageText);
         return;
       }
-    }
   
-    // Send chat message after file upload
-    try {
+      setLoading(true);
+  
       const response = await axiosInstance.post("/chat/", {
-        message: filePath || userInput, // Send the full path or input text to backend
+        message: messageText,
         user_id: userId,
+        is_extracted_info: Boolean(extractedData)
       });
   
-      // Update chat messages
-      setMessages((prev) => [
-        ...prev,
-        { sender: "bot", text: response.data.response, time: getCurrentTime() },
-        ...(response.data.question
-          ? [
-              {
-                sender: "bot",
-                text: response.data.question,
-                time: getCurrentTime(),
-              },
-            ]
-          : []),
-        ...(response.data.example
-          ? [
-              {
-                sender: "bot",
-                text: response.data.example,
-                time: getCurrentTime(),
-              },
-            ]
-          : []),
-          ...(response.data.link
-            ? [
-                {
-                  sender: "bot",
-                  text: response.data.link,
-                  time: getCurrentTime(),
-                },
-              ]
-            : []),
-      ]);
-  
-      setOptions(
-        response.data.options ? response.data.options.split(", ") : []
-      );
-    } catch (chatError) {
-      console.error("Error sending message:", chatError);
-      setMessages((prev) => [
-        ...prev,
-        {
+      let botResponses = [];
+      if (response.data.response) {
+        botResponses.push({
           sender: "bot",
-          text: "Sorry, something went wrong. Please try again later!",
-          time: getCurrentTime(),
-        },
-      ]);
+          text: response.data.response,
+          time: getCurrentTime()
+        });
+      }
+  
+      if (response.data.link) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.link,
+          time: getCurrentTime()
+        });
+      }
+  
+      if (response.data.question) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.question,
+          time: getCurrentTime()
+        });
+      }
+      if (response.data.example) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.example,
+          time: getCurrentTime()
+        });
+      }
+  
+      setMessages(prev => [...prev, ...botResponses]);
+      setOptions(response.data.options ? response.data.options.split(", ") : []);
+  
+      if (extractedData) {
+        setExtractedInfo(null);
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      setMessages(prev => [...prev, {
+        sender: "bot",
+        text: "Sorry, something went wrong. Please try again.",
+        time: getCurrentTime()
+      }]);
     } finally {
-      setFile(null); // Clear the file after sending
       setLoading(false);
     }
   };
-  
+  // Update the Submit button handler
+  const handleSubmitExtractedInfo = () => {
+    if (extractedInfo) {
+      handleSendMessage(extractedInfo);
+    }
+  };
 
 
   const handleOptionClick = async (option) => {
@@ -294,7 +399,7 @@ const handleFileLocate = () => {
 };
 
   // Handle file upload
-  const handleFileAttach = (e) => {
+  const handleFileAttach1 = (e) => {
     const uploadedFile = e.target.files[0];
     if (uploadedFile) {
       setFile(uploadedFile);
@@ -305,6 +410,98 @@ const handleFileLocate = () => {
   const handleFileRemove = () => {
     setFile(null);
   };
+
+  const ExtractedField = ({ field, value: initialValue, onSave }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [value, setValue] = useState(initialValue);
+    const [editValue, setEditValue] = useState(initialValue);
+    const inputRef = useRef(null);
+  
+    // Format display name
+    const displayName = field.split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  
+    // Focus input when editing starts
+    useEffect(() => {
+      if (isEditing && inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, [isEditing]);
+  
+    const handleEditStart = () => {
+      setIsEditing(true);
+      setEditValue(value);
+    };
+  
+    const handleSave = () => {
+      setValue(editValue);
+      setIsEditing(false);
+      if (onSave) {
+        onSave(field, editValue);
+      }
+    };
+  
+    const handleCancel = () => {
+      setIsEditing(false);
+      setEditValue(value);
+    };
+  
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        handleSave();
+      } else if (e.key === 'Escape') {
+        handleCancel();
+      }
+    };
+  
+    return (
+      <div className="flex items-center justify-between p-2 border-b border-gray-200 hover:bg-gray-50">
+        <div className="font-medium text-gray-700">{displayName}</div>
+        <div className="flex items-center gap-2">
+          {isEditing ? (
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-200 w-full"
+                autoFocus
+              />
+              <button
+                onClick={handleSave}
+                className="p-1 text-green-600 hover:text-green-800 transition-colors"
+                title="Save"
+              >
+                <FiCheck className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleCancel}
+                className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                title="Cancel"
+              >
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-900">{value}</span>
+              <button
+                onClick={handleEditStart}
+                className="p-1 text-gray-600 hover:text-gray-800 transition-colors"
+                title="Edit"
+              >
+                <FiEdit2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="relative">
       <button
@@ -334,40 +531,68 @@ const handleFileLocate = () => {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 p-4 overflow-y-auto">
-          {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`mb-3 ${
-                  msg.sender === "bot" ? "text-left" : "text-right"
-                }`}
-              >
-                <span
-                  className={`relative inline-block px-4 py-6 rounded-lg ${
-                    msg.sender === "bot"
-                      ? "bg-botBackgroundColor text-black border border-black-500"
-                      : "bg-sendColor text-black"
-                  }`}
-                  style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
-                >
-                   {msg.text.startsWith("https") ? (
-          <a
-            href={msg.text}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 underline"
+ <div className="flex-1 p-4 overflow-y-auto">
+        {messages.map((msg, index) => (
+          <div
+            key={index}
+            className={`mb-3 ${
+              msg.sender === "bot" ? "text-left" : "text-right"
+            }`}
           >
-            {msg.text}
-          </a>
-        ) : (
-          msg.text
-        )}
-                  <span className="absolute bottom-1 right-2 text-sm text-gray-500">
-                    {msg.time}
-                  </span>
-                </span>
-              </div>
+            <span
+              className={`relative inline-block px-4 py-6 rounded-lg ${
+                msg.sender === "bot"
+                  ? "bg-botBackgroundColor text-black border border-black-500"
+                  : "bg-sendColor text-black"
+              }`}
+              style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
+            >
+              {msg.text.startsWith("https") ? (
+                <a
+                  href={msg.text}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 underline"
+                >
+                  {msg.text}
+                </a>
+              ) : (
+                msg.text
+              )}
+              <span className="absolute bottom-1 right-2 text-sm text-gray-500">
+                {msg.time}
+              </span>
+            </span>
+          </div>
+        ))}
+
+       {/* Extracted Information Display */}
+      {extractedInfo && (
+        <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">
+          <h3 className="font-semibold mb-2 text-lg">Extracted Information</h3>
+          <div className="space-y-2">
+            {Object.entries(extractedInfo).map(([field, value]) => (
+              <ExtractedField
+                key={field}
+                field={field}
+                value={value}
+              />
             ))}
+          </div>
+          <div className="flex justify-end mt-4">
+            <button
+             onClick={handleSubmitExtractedInfo}
+              disabled={loading}
+              className={`px-4 py-2 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
+                loading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              Submit All
+            </button>
+          </div>
+        </div>
+      )}
+
 
 
             {loading && messages.length > 0 && (
@@ -397,58 +622,73 @@ const handleFileLocate = () => {
 
           {/* Input */}
           <div className="pb-4">
-  {file && (
-    <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
-      <span className="text-gray-700 text-sm">{file.name}</span>
-      <div className="flex space-x-2">
-        <button
-          className="text-blue-500 text-sm underline hover:text-blue-700"
-          onClick={handleFileLocate}
-        >
-          View
-        </button>
-        <AiOutlineClose
-          className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
-          onClick={handleFileRemove}
-        />
+        {(uploadLoading || loading) && (
+          <div className="px-4 py-2">
+            <div className="animate-pulse flex space-x-4">
+              <div className="flex-1 space-y-4 py-1">
+                <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                <div className="space-y-2">
+                  <div className="h-4 bg-gray-200 rounded"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {file && (
+          <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
+            <span className="text-gray-700 text-sm">{file.name}</span>
+            <div className="flex space-x-2">
+              <button
+                className="text-blue-500 text-sm underline hover:text-blue-700"
+                onClick={handleFileLocate}
+              >
+                View
+              </button>
+              <AiOutlineClose
+                className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
+                onClick={handleFileRemove}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
+          <label className="mr-2 cursor-pointer">
+            <input
+              type="file"
+              className="hidden"
+              onChange={handleFileAttach}
+              accept="image/*,.pdf,.doc,.docx"
+            />
+            <AiOutlinePaperClip 
+              className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${uploadLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            />
+          </label>
+
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={file ? "Ask me about the document..." : "Type your message..."}
+            className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleSendMessage();
+              }
+            }}
+          />
+<button
+  onClick={() => handleSendMessage()}
+  className={`ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
+    (uploadLoading || loading) ? 'opacity-50 cursor-not-allowed' : ''
+  }`}
+  disabled={uploadLoading || loading}
+>
+  Send
+</button>
+        </div>
       </div>
-    </div>
-  )}
-
-  <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
-    {/* Paper Pin Icon */}
-    <label className="mr-2 cursor-pointer">
-      <input
-        type="file"
-        className="hidden"
-        onChange={handleFileAttach}
-      />
-      <AiOutlinePaperClip className="pl-2 h-8 w-8 text-gray-500 hover:text-black" />
-    </label>
-
-    {/* Message Input */}
-    <input
-      type="text"
-      value={input}
-      onChange={(e) => setInput(e.target.value)}
-      placeholder="Type your message..."
-      className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          handleSendMessage();
-        }
-      }}
-    />
-
-    {/* Send Button */}
-    <button
-      onClick={handleSendMessage}
-      className="ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColortransition"
-    >
-      Send
-    </button>
-  </div>
-</div>
 
         </div>
       )}

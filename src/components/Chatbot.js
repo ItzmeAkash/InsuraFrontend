@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import axiosInstance from "../axiosInstance";
-import { AiOutlinePaperClip,AiOutlineClose } from "react-icons/ai";
+import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
 
 const Chatbot = () => {
@@ -21,80 +21,75 @@ const Chatbot = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-
-
   useEffect(() => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
 
   const formatExtractedInfoAsText = (info) => {
-    if (!info) return '';
-    
+    if (!info) return "";
+
     return Object.entries(info)
       .map(([key, value]) => {
         // Convert snake_case to Title Case
         const formattedKey = key
-          .split('_')
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ');
+          .split("_")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
         return `${formattedKey}: ${value}`;
       })
-      .join('\n');
+      .join("\n");
   };
-  
+
   const handleFileAttach = async (e) => {
     const uploadedFile = e.target.files[0];
     if (uploadedFile) {
       setLoading(true);
-      
+
       const formData = new FormData();
-      formData.append('file', uploadedFile);
-      formData.append('user_id', userId);
+      formData.append("file", uploadedFile);
+      formData.append("user_id", userId);
 
       try {
         const response = await axiosInstance.post("/extract-image/", formData, {
           headers: {
-            'Content-Type': 'multipart/form-data'
-          }
+            "Content-Type": "multipart/form-data",
+          },
         });
 
-        console.log('Extracted Information:', response.data);
+        console.log("Extracted Information:", response.data);
         setExtractedInfo(response.data);
-
       } catch (error) {
         console.error("Error processing document:", error);
-        setMessages(prev => [...prev, {
-          sender: "bot",
-          text: "Sorry, I couldn't process your document. Please try again.",
-          time: getCurrentTime()
-        }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "bot",
+            text: "Sorry, I couldn't process your document. Please try again.",
+            time: getCurrentTime(),
+          },
+        ]);
       } finally {
         setLoading(false);
       }
     }
   };
 
-
-
   const handleEditField = (field, value) => {
     setEditingField(field);
     setEditValue(value);
   };
 
-const handleSaveField = (field) => {
-    setExtractedInfo(prev => ({
+  const handleSaveField = (field, newValue) => {
+    setExtractedInfo((prev) => ({
       ...prev,
-      [field]: editValue
+      [field]: newValue,
     }));
-    setEditingField(null);
-    setEditValue("");
   };
 
   const handleCancelEdit = () => {
     setEditingField(null);
     setEditValue("");
   };
-
 
   const getCurrentTime = () => {
     return new Date().toLocaleTimeString([], {
@@ -182,9 +177,9 @@ const handleSaveField = (field) => {
         hour12: true,
       });
     };
-  
+
     const isCircularReference = (obj, seen = new WeakSet()) => {
-      if (obj && typeof obj === 'object') {
+      if (obj && typeof obj === "object") {
         if (seen.has(obj)) {
           return true;
         }
@@ -197,25 +192,27 @@ const handleSaveField = (field) => {
       }
       return false;
     };
-  
+
     const sanitizeData = (value, seen = new WeakSet()) => {
-      if (value === null || typeof value !== 'object') {
+      if (value === null || typeof value !== "object") {
         return value;
       }
-  
+
       if (Array.isArray(value)) {
-        return value.map(item => sanitizeData(item, seen));
+        return value.map((item) => sanitizeData(item, seen));
       }
-  
-      if (value instanceof Element || 
-          value instanceof HTMLElement || 
-          value === window || 
-          value === document || 
-          typeof value === 'function' ||
-          isCircularReference(value, seen)) {
+
+      if (
+        value instanceof Element ||
+        value instanceof HTMLElement ||
+        value === window ||
+        value === document ||
+        typeof value === "function" ||
+        isCircularReference(value, seen)
+      ) {
         return null;
       }
-  
+
       const sanitized = {};
       seen.add(value);
       for (const [key, val] of Object.entries(value)) {
@@ -225,7 +222,7 @@ const handleSaveField = (field) => {
       }
       return sanitized;
     };
-  
+
     const formatMessageText = (extractedData, input) => {
       if (extractedData) {
         const sanitizedData = sanitizeData(extractedData);
@@ -236,92 +233,102 @@ const handleSaveField = (field) => {
       }
       return input ? input.trim() : "";
     };
-  
+
     try {
       const messageText = formatMessageText(extractedData, input);
       if (!messageText) return;
-  
+
       // Create user message object for backend processing
       const userMessage = {
         sender: "user",
         text: messageText,
-        time: getCurrentTime()
+        time: getCurrentTime(),
       };
-  
+
       // Display a fixed success message in the UI when extracted data is present
-      const displayMessageText = extractedData ? "Document Upload successfully" : messageText;
-  
+      const displayMessageText = extractedData
+        ? "Document Upload successfully"
+        : messageText;
+
       // Set message in state for UI
-      setMessages(prev => [...prev, {
-        sender: "user",
-        text: displayMessageText,
-        time: getCurrentTime()
-      }]);
-  
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "user",
+          text: displayMessageText,
+          time: getCurrentTime(),
+        },
+      ]);
+
       if (!extractedData) {
         setInput("");
       }
-  
+
       if (awaitingName) {
         setUserId(messageText);
         setAwaitingName(false);
         await sendInitialTrigger(messageText);
         return;
       }
-  
+
       setLoading(true);
-  
+
       const response = await axiosInstance.post("/chat/", {
         message: messageText,
         user_id: userId,
-        is_extracted_info: Boolean(extractedData)
+        is_extracted_info: Boolean(extractedData),
       });
-  
+
       let botResponses = [];
       if (response.data.response) {
         botResponses.push({
           sender: "bot",
           text: response.data.response,
-          time: getCurrentTime()
+          time: getCurrentTime(),
         });
       }
-  
+
       if (response.data.link) {
         botResponses.push({
           sender: "bot",
           text: response.data.link,
-          time: getCurrentTime()
+          time: getCurrentTime(),
         });
       }
-  
+
       if (response.data.question) {
         botResponses.push({
           sender: "bot",
           text: response.data.question,
-          time: getCurrentTime()
+          time: getCurrentTime(),
         });
       }
       if (response.data.example) {
         botResponses.push({
           sender: "bot",
           text: response.data.example,
-          time: getCurrentTime()
+          time: getCurrentTime(),
         });
       }
-  
-      setMessages(prev => [...prev, ...botResponses]);
-      setOptions(response.data.options ? response.data.options.split(", ") : []);
-  
+
+      setMessages((prev) => [...prev, ...botResponses]);
+      setOptions(
+        response.data.options ? response.data.options.split(", ") : []
+      );
+
       if (extractedData) {
         setExtractedInfo(null);
       }
     } catch (error) {
       console.error("Error sending message:", error);
-      setMessages(prev => [...prev, {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again.",
-        time: getCurrentTime()
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again.",
+          time: getCurrentTime(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -332,7 +339,6 @@ const handleSaveField = (field) => {
       handleSendMessage(extractedInfo);
     }
   };
-
 
   const handleOptionClick = async (option) => {
     const userMessage = {
@@ -390,13 +396,13 @@ const handleSaveField = (field) => {
   };
 
   const [file, setFile] = useState(null);
-// Locate file in system
-const handleFileLocate = () => {
-  if (file) {
-    const fileURL = URL.createObjectURL(file);
-    window.open(fileURL, "_blank");
-  }
-};
+  // Locate file in system
+  const handleFileLocate = () => {
+    if (file) {
+      const fileURL = URL.createObjectURL(file);
+      window.open(fileURL, "_blank");
+    }
+  };
 
   // Handle file upload
   const handleFileAttach1 = (e) => {
@@ -416,24 +422,25 @@ const handleFileLocate = () => {
     const [value, setValue] = useState(initialValue);
     const [editValue, setEditValue] = useState(initialValue);
     const inputRef = useRef(null);
-  
+
     // Format display name
-    const displayName = field.split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  
+    const displayName = field
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
     // Focus input when editing starts
     useEffect(() => {
       if (isEditing && inputRef.current) {
         inputRef.current.focus();
       }
     }, [isEditing]);
-  
+
     const handleEditStart = () => {
       setIsEditing(true);
       setEditValue(value);
     };
-  
+
     const handleSave = () => {
       setValue(editValue);
       setIsEditing(false);
@@ -441,20 +448,20 @@ const handleFileLocate = () => {
         onSave(field, editValue);
       }
     };
-  
+
     const handleCancel = () => {
       setIsEditing(false);
       setEditValue(value);
     };
-  
+
     const handleKeyDown = (e) => {
-      if (e.key === 'Enter') {
+      if (e.key === "Enter") {
         handleSave();
-      } else if (e.key === 'Escape') {
+      } else if (e.key === "Escape") {
         handleCancel();
       }
     };
-  
+
     return (
       <div className="flex items-center justify-between p-2 border-b border-gray-200 hover:bg-gray-50">
         <div className="font-medium text-gray-700">{displayName}</div>
@@ -531,69 +538,65 @@ const handleFileLocate = () => {
           </div>
 
           {/* Messages */}
- <div className="flex-1 p-4 overflow-y-auto">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`mb-3 ${
-              msg.sender === "bot" ? "text-left" : "text-right"
-            }`}
-          >
-            <span
-              className={`relative inline-block px-4 py-6 rounded-lg ${
-                msg.sender === "bot"
-                  ? "bg-botBackgroundColor text-black border border-black-500"
-                  : "bg-sendColor text-black"
-              }`}
-              style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
-            >
-              {msg.text.startsWith("https") ? (
-                <a
-                  href={msg.text}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 underline"
+          <div className="flex-1 p-4 overflow-y-auto">
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`mb-3 ${
+                  msg.sender === "bot" ? "text-left" : "text-right"
+                }`}
+              >
+                <span
+                  className={`relative inline-block px-4 py-6 rounded-lg ${
+                    msg.sender === "bot"
+                      ? "bg-botBackgroundColor text-black border border-black-500"
+                      : "bg-sendColor text-black"
+                  }`}
+                  style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
                 >
-                  {msg.text}
-                </a>
-              ) : (
-                msg.text
-              )}
-              <span className="absolute bottom-1 right-2 text-sm text-gray-500">
-                {msg.time}
-              </span>
-            </span>
-          </div>
-        ))}
-
-       {/* Extracted Information Display */}
-      {extractedInfo && (
-        <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">
-          <h3 className="font-semibold mb-2 text-lg">Extracted Information</h3>
-          <div className="space-y-2">
-            {Object.entries(extractedInfo).map(([field, value]) => (
-              <ExtractedField
-                key={field}
-                field={field}
-                value={value}
-              />
+                  {msg.text.startsWith("https") ? (
+                    <a
+                      href={msg.text}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 underline"
+                    >
+                      {msg.text}
+                    </a>
+                  ) : (
+                    msg.text
+                  )}
+                  <span className="absolute bottom-1 right-2 text-sm text-gray-500">
+                    {msg.time}
+                  </span>
+                </span>
+              </div>
             ))}
-          </div>
-          <div className="flex justify-end mt-4">
-            <button
-             onClick={handleSubmitExtractedInfo}
-              disabled={loading}
-              className={`px-4 py-2 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
-                loading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              Submit All
-            </button>
-          </div>
-        </div>
-      )}
 
-
+            {/* Extracted Information Display */}
+            {extractedInfo && (
+              <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">
+                <h3 className="font-semibold mb-2 text-lg">
+                  Extracted Information
+                </h3>
+                <div className="space-y-2">
+                  {Object.entries(extractedInfo).map(([field, value]) => (
+                    <ExtractedField key={field} field={field} value={value} onSave={handleSaveField} />
+                  ))}
+                </div>
+                <div className="flex justify-end mt-4">
+                  <button
+                    onClick={handleSubmitExtractedInfo}
+                    disabled={loading}
+                    className={`px-4 py-2 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
+                      loading ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
+                  >
+                    Submit All
+                  </button>
+                </div>
+              </div>
+            )}
 
             {loading && messages.length > 0 && (
               <div className="mb-3 text-left">
@@ -622,74 +625,79 @@ const handleFileLocate = () => {
 
           {/* Input */}
           <div className="pb-4">
-        {(uploadLoading || loading) && (
-          <div className="px-4 py-2">
-            <div className="animate-pulse flex space-x-4">
-              <div className="flex-1 space-y-4 py-1">
-                <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                <div className="space-y-2">
-                  <div className="h-4 bg-gray-200 rounded"></div>
+            {(uploadLoading || loading) && (
+              <div className="px-4 py-2">
+                <div className="animate-pulse flex space-x-4">
+                  <div className="flex-1 space-y-4 py-1">
+                    <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                    <div className="space-y-2">
+                      <div className="h-4 bg-gray-200 rounded"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {file && (
-          <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
-            <span className="text-gray-700 text-sm">{file.name}</span>
-            <div className="flex space-x-2">
-              <button
-                className="text-blue-500 text-sm underline hover:text-blue-700"
-                onClick={handleFileLocate}
-              >
-                View
-              </button>
-              <AiOutlineClose
-                className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
-                onClick={handleFileRemove}
+            {file && (
+              <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
+                <span className="text-gray-700 text-sm">{file.name}</span>
+                <div className="flex space-x-2">
+                  <button
+                    className="text-blue-500 text-sm underline hover:text-blue-700"
+                    onClick={handleFileLocate}
+                  >
+                    View
+                  </button>
+                  <AiOutlineClose
+                    className="h-5 w-5 text-gray-500 hover:text-black cursor-pointer"
+                    onClick={handleFileRemove}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
+              <label className="mr-2 cursor-pointer">
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileAttach}
+                  accept="image/*,.pdf,.doc,.docx"
+                />
+                <AiOutlinePaperClip
+                  className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${
+                    uploadLoading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                />
+              </label>
+
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  file ? "Ask me about the document..." : "Type your message..."
+                }
+                className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSendMessage();
+                  }
+                }}
               />
+              <button
+                onClick={() => handleSendMessage()}
+                className={`ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
+                  uploadLoading || loading
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                }`}
+                disabled={uploadLoading || loading}
+              >
+                Send
+              </button>
             </div>
           </div>
-        )}
-
-        <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
-          <label className="mr-2 cursor-pointer">
-            <input
-              type="file"
-              className="hidden"
-              onChange={handleFileAttach}
-              accept="image/*,.pdf,.doc,.docx"
-            />
-            <AiOutlinePaperClip 
-              className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${uploadLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-            />
-          </label>
-
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={file ? "Ask me about the document..." : "Type your message..."}
-            className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                handleSendMessage();
-              }
-            }}
-          />
-<button
-  onClick={() => handleSendMessage()}
-  className={`ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
-    (uploadLoading || loading) ? 'opacity-50 cursor-not-allowed' : ''
-  }`}
-  disabled={uploadLoading || loading}
->
-  Send
-</button>
-        </div>
-      </div>
-
         </div>
       )}
     </div>

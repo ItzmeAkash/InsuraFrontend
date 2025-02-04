@@ -22,7 +22,7 @@ const VoicePage = () => {
       </div>
             {/* Version Box */}
             <div className="fixed top-5 right-5 bg-white text-gray-800 px-4 py-2 rounded-full shadow-md z-10">
-        v.2
+        v 2.5
       </div>
 
       {/* Chatbot Component */}

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
-import axiosInstance from "../axiosInstance";
+import axiosInstance, { baseURL } from "../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
-import { baseURL } from '../axiosInstance';
+
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [options, setOptions] = useState([]);
+  const [documentOptions, setDocumentOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState("");
   const [awaitingName, setAwaitingName] = useState(false);
@@ -16,6 +17,7 @@ const Chatbot = () => {
   const [extractedInfo, setExtractedInfo] = useState(null);
   const [editingField, setEditingField] = useState(null);
   const [editValue, setEditValue] = useState("");
+  const [file, setFile] = useState(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -156,6 +158,11 @@ const Chatbot = () => {
       setOptions(
         response.data.options ? response.data.options.split(", ") : []
       );
+      setDocumentOptions(
+        response.data.document_options
+          ? response.data.document_options.split(", ")
+          : []
+      );
     } catch (error) {
       console.error("Error triggering initial message:", error);
       setMessages((prev) => [
@@ -177,7 +184,7 @@ const Chatbot = () => {
         hour12: true,
       });
     };
-  
+
     const isCircularReference = (obj, seen = new WeakSet()) => {
       if (obj && typeof obj === "object") {
         if (seen.has(obj)) {
@@ -192,16 +199,16 @@ const Chatbot = () => {
       }
       return false;
     };
-  
+
     const sanitizeData = (value, seen = new WeakSet()) => {
       if (value === null || typeof value !== "object") {
         return value;
       }
-  
+
       if (Array.isArray(value)) {
         return value.map((item) => sanitizeData(item, seen));
       }
-  
+
       if (
         value instanceof Element ||
         value instanceof HTMLElement ||
@@ -212,7 +219,7 @@ const Chatbot = () => {
       ) {
         return null;
       }
-  
+
       const sanitized = {};
       seen.add(value);
       for (const [key, val] of Object.entries(value)) {
@@ -222,7 +229,7 @@ const Chatbot = () => {
       }
       return sanitized;
     };
-  
+
     const formatMessageText = (extractedData, input) => {
       if (extractedData) {
         const sanitizedData = sanitizeData(extractedData);
@@ -233,23 +240,23 @@ const Chatbot = () => {
       }
       return input ? input.trim() : "";
     };
-  
+
     try {
       const messageText = formatMessageText(extractedData, input);
       if (!messageText) return;
-  
+
       // Create user message object for backend processing
       const userMessage = {
         sender: "user",
         text: messageText,
         time: getCurrentTime(),
       };
-  
+
       // Display a fixed success message in the UI when extracted data is present
       const displayMessageText = extractedData
         ? "Document Upload successfully"
         : messageText;
-  
+
       // Set message in state for UI
       setMessages((prev) => [
         ...prev,
@@ -259,26 +266,26 @@ const Chatbot = () => {
           time: getCurrentTime(),
         },
       ]);
-  
+
       if (!extractedData) {
         setInput("");
       }
-  
+
       if (awaitingName) {
         setUserId(messageText);
         setAwaitingName(false);
         await sendInitialTrigger(messageText);
         return;
       }
-  
+
       setLoading(true);
-  
+
       const response = await axiosInstance.post("/chat/", {
         message: messageText,
         user_id: userId,
         is_extracted_info: Boolean(extractedData),
       });
-  
+
       let botResponses = [];
       if (response.data.response) {
         botResponses.push({
@@ -287,7 +294,7 @@ const Chatbot = () => {
           time: getCurrentTime(),
         });
       }
-  
+
       if (response.data.link) {
         botResponses.push({
           sender: "bot",
@@ -295,7 +302,7 @@ const Chatbot = () => {
           time: getCurrentTime(),
         });
       }
-  
+
       if (response.data.question) {
         botResponses.push({
           sender: "bot",
@@ -310,25 +317,30 @@ const Chatbot = () => {
           time: getCurrentTime(),
         });
       }
-  
+
       // Check for document_name in the response
       if (response.data.document_name) {
         const documentName = response.data.document_name;
         console.log(documentName);
-  
+
         const pdfURL = `${baseURL}/pdf/${documentName}`;
-  
-       
+
         botResponses.push({
           sender: "bot",
           text: pdfURL,
           time: getCurrentTime(),
         });
       }
-  
+
       setMessages((prev) => [...prev, ...botResponses]);
       setOptions(response.data.options ? response.data.options.split(", ") : []);
-  
+      setDocumentOptions(
+        response.data.document_options
+          ? response.data.document_options.split(", ")
+          : []
+      );
+      console.log(documentOptions);
+      
       if (extractedData) {
         setExtractedInfo(null);
       }
@@ -346,16 +358,17 @@ const Chatbot = () => {
       setLoading(false);
     }
   };
-  
+
   // Define the downloadPDF function
   const downloadPDF = (url, filename) => {
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = url;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
+
   // Update the Submit button handler
   const handleSubmitExtractedInfo = () => {
     if (extractedInfo) {
@@ -395,8 +408,38 @@ const Chatbot = () => {
       setOptions(
         response.data.options ? response.data.options.split(", ") : []
       );
+      setDocumentOptions(
+        response.data.document_options
+          ? response.data.document_options.split(", ")
+          : []
+      );
     } catch (error) {
       console.error("Error sending option:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDocumentOptionClick = async (option) => {
+    setLoading(true);
+    try {
+      const response = await axiosInstance.post("/generate-document/", {
+        option,
+        user_id: userId,
+      });
+
+      const pdfURL = `${baseURL}/pdf/${response.data.document_name}`;
+      downloadPDF(pdfURL, response.data.document_name);
+    } catch (error) {
+      console.error("Error generating document:", error);
       setMessages((prev) => [
         ...prev,
         {
@@ -418,7 +461,6 @@ const Chatbot = () => {
     });
   };
 
-  const [file, setFile] = useState(null);
   // Locate file in system
   const handleFileLocate = () => {
     if (file) {
@@ -531,7 +573,6 @@ const Chatbot = () => {
       </div>
     );
   };
-
   return (
     <div className="relative">
       <button

@@ -32,7 +32,6 @@ const Chatbot = () => {
 
     return Object.entries(info)
       .map(([key, value]) => {
-        // Convert snake_case to Title Case
         const formattedKey = key
           .split("_")
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -76,21 +75,11 @@ const Chatbot = () => {
     }
   };
 
-  const handleEditField = (field, value) => {
-    setEditingField(field);
-    setEditValue(value);
-  };
-
   const handleSaveField = (field, newValue) => {
     setExtractedInfo((prev) => ({
       ...prev,
       [field]: newValue,
     }));
-  };
-
-  const handleCancelEdit = () => {
-    setEditingField(null);
-    setEditValue("");
   };
 
   const getCurrentTime = () => {
@@ -176,189 +165,199 @@ const Chatbot = () => {
     }
   };
 
-  const handleSendMessage = async (extractedData = null) => {
-    const getCurrentTime = () => {
-      return new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      });
-    };
+const handleSendMessage = async (
+  extractedData = null,
+  isDocumentCompleted = false
+) => {
+  console.log("handleSendMessage called with:", {
+    extractedData,
+    isDocumentCompleted,
+  });
 
-    const isCircularReference = (obj, seen = new WeakSet()) => {
-      if (obj && typeof obj === "object") {
-        if (seen.has(obj)) {
-          return true;
-        }
-        seen.add(obj);
-        for (const key in obj) {
-          if (obj.hasOwnProperty(key) && isCircularReference(obj[key], seen)) {
-            return true;
-          }
-        }
-      }
-      return false;
-    };
-
-    const sanitizeData = (value, seen = new WeakSet()) => {
-      if (value === null || typeof value !== "object") {
-        return value;
-      }
-
-      if (Array.isArray(value)) {
-        return value.map((item) => sanitizeData(item, seen));
-      }
-
-      if (
-        value instanceof Element ||
-        value instanceof HTMLElement ||
-        value === window ||
-        value === document ||
-        typeof value === "function" ||
-        isCircularReference(value, seen)
-      ) {
-        return null;
-      }
-
-      const sanitized = {};
-      seen.add(value);
-      for (const [key, val] of Object.entries(value)) {
-        if (val !== window && val !== document && val !== null) {
-          sanitized[key.toLowerCase()] = sanitizeData(val, seen);
-        }
-      }
-      return sanitized;
-    };
-
-    const formatMessageText = (extractedData, input) => {
-      if (extractedData) {
-        const sanitizedData = sanitizeData(extractedData);
-        if (sanitizedData && Object.keys(sanitizedData).length > 0) {
-          return JSON.stringify(sanitizedData);
-        }
-        return null;
-      }
-      return input ? input.trim() : "";
-    };
-
-    try {
-      const messageText = formatMessageText(extractedData, input);
-      if (!messageText) return;
-
-      // Create user message object for backend processing
-      const userMessage = {
-        sender: "user",
-        text: messageText,
-        time: getCurrentTime(),
-      };
-
-      // Display a fixed success message in the UI when extracted data is present
-      const displayMessageText = extractedData
-        ? "Document Upload successfully"
-        : messageText;
-
-      // Set message in state for UI
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: "user",
-          text: displayMessageText,
-          time: getCurrentTime(),
-        },
-      ]);
-
-      if (!extractedData) {
-        setInput("");
-      }
-
-      if (awaitingName) {
-        setUserId(messageText);
-        setAwaitingName(false);
-        await sendInitialTrigger(messageText);
-        return;
-      }
-
-      setLoading(true);
-
-      const response = await axiosInstance.post("/chat/", {
-        message: messageText,
-        user_id: userId,
-        is_extracted_info: Boolean(extractedData),
-      });
-
-      let botResponses = [];
-      if (response.data.response) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.response,
-          time: getCurrentTime(),
-        });
-      }
-
-      if (response.data.link) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.link,
-          time: getCurrentTime(),
-        });
-      }
-
-      if (response.data.question) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.question,
-          time: getCurrentTime(),
-        });
-      }
-      if (response.data.example) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.example,
-          time: getCurrentTime(),
-        });
-      }
-
-      // Check for document_name in the response
-      if (response.data.document_name) {
-        const documentName = response.data.document_name;
-        console.log(documentName);
-
-        const pdfURL = `${baseURL}/pdf/${documentName}`;
-
-        botResponses.push({
-          sender: "bot",
-          text: pdfURL,
-          time: getCurrentTime(),
-        });
-      }
-
-      setMessages((prev) => [...prev, ...botResponses]);
-      setOptions(response.data.options ? response.data.options.split(", ") : []);
-      setDocumentOptions(
-        response.data.document_options
-          ? response.data.document_options.split(", ")
-          : []
-      );
-      console.log(documentOptions);
-      
-      if (extractedData) {
-        setExtractedInfo(null);
-      }
-    } catch (error) {
-      console.error("Error sending message:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: "bot",
-          text: "Sorry, something went wrong. Please try again.",
-          time: getCurrentTime(),
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
+  const getCurrentTime = () => {
+    return new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
   };
 
+  const isCircularReference = (obj, seen = new WeakSet()) => {
+    if (obj && typeof obj === "object") {
+      if (seen.has(obj)) {
+        return true;
+      }
+      seen.add(obj);
+      for (const key in obj) {
+        if (isCircularReference(obj[key], seen)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const sanitizeData = (value, seen = new WeakSet()) => {
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => sanitizeData(item, seen));
+    }
+
+    if (
+      value instanceof Element ||
+      value instanceof HTMLElement ||
+      value === window ||
+      value === document ||
+      typeof value === "function" ||
+      isCircularReference(value, seen)
+    ) {
+      return null;
+    }
+
+    const sanitized = {};
+    seen.add(value);
+    for (const [key, val] of Object.entries(value)) {
+      sanitized[key] = sanitizeData(val, seen);
+    }
+    return sanitized;
+  };
+
+  const formatMessageText = (extractedData, input) => {
+    if (extractedData) {
+      return JSON.stringify(sanitizeData(extractedData));
+    }
+    return input ? input.trim() : "";
+  };
+
+  try {
+    const messageText = isDocumentCompleted
+      ? "Download completed"
+      : formatMessageText(extractedData, input);
+    if (!messageText) return;
+
+    // Create user message object for backend processing
+    const userMessage = {
+      sender: "user",
+      text: messageText,
+      time: getCurrentTime(),
+    };
+
+    // Display a fixed success message in the UI when extracted data is present
+    const displayMessageText = extractedData
+      ? "Document Upload successfully"
+      : messageText;
+
+    // Set message in state for UI
+    setMessages((prev) => [
+      ...prev,
+      {
+        sender: "user",
+        text: displayMessageText,
+        time: getCurrentTime(),
+      },
+    ]);
+
+    if (!extractedData && !isDocumentCompleted) {
+      setInput("");
+    }
+
+    if (awaitingName) {
+      setUserId(messageText);
+      setAwaitingName(false);
+      sendInitialTrigger(messageText);
+      return;
+    }
+
+    setLoading(true);
+
+    // Add a delay before making the API call if the document is completed
+    if (isDocumentCompleted) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    const response = await axiosInstance.post("/chat/", {
+      message: messageText,
+      user_id: userId,
+      is_extracted_info: Boolean(extractedData),
+    });
+
+    let botResponses = [];
+    if (response.data.response) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.response,
+        time: getCurrentTime(),
+      });
+    }
+
+    if (response.data.link) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.link,
+        time: getCurrentTime(),
+      });
+    }
+
+    if (response.data.question) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.question,
+        time: getCurrentTime(),
+      });
+    }
+
+    if (response.data.example) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.example,
+        time: getCurrentTime(),
+      });
+    }
+
+    // Check for document_name in the response
+    if (response.data.document_name) {
+      botResponses.push({
+        sender: "bot",
+        text: `Document ${response.data.document_name} is ready.`,
+        time: getCurrentTime(),
+      });
+    }
+
+    setMessages((prev) => [...prev, ...botResponses]);
+    setOptions(
+      response.data.options ? response.data.options.split(", ") : []
+    );
+    setDocumentOptions(
+      response.data.document_options &&
+        typeof response.data.document_options === "string"
+        ? response.data.document_options.split(", ")
+        : Array.isArray(response.data.document_options)
+        ? response.data.document_options
+        : []
+    );
+
+    console.log(documentOptions);
+
+    if (extractedData) {
+      setExtractedInfo(null);
+    }
+  } catch (error) {
+    console.error("Error sending message:", error);
+    setMessages((prev) => [
+      ...prev,
+      {
+        sender: "bot",
+        text: "Sorry, something went wrong. Please try again.",
+        time: getCurrentTime(),
+      },
+    ]);
+  } finally {
+    setLoading(false);
+  }
+};
   // Define the downloadPDF function
   const downloadPDF = (url, filename) => {
     const link = document.createElement("a");
@@ -431,13 +430,10 @@ const Chatbot = () => {
   const handleDocumentOptionClick = async (option) => {
     setLoading(true);
     try {
-      const response = await axiosInstance.post("/generate-document/", {
-        option,
-        user_id: userId,
-      });
+      const pdfURL = `${baseURL}/pdf/${option}`;
+      downloadPDF(pdfURL, option);
 
-      const pdfURL = `${baseURL}/pdf/${response.data.document_name}`;
-      downloadPDF(pdfURL, response.data.document_name);
+      await handleSendMessage(null, true);
     } catch (error) {
       console.error("Error generating document:", error);
       setMessages((prev) => [
@@ -452,7 +448,6 @@ const Chatbot = () => {
       setLoading(false);
     }
   };
-
   const handleToggleChat = () => {
     setIsChatOpen((prev) => {
       const willOpen = !prev;
@@ -603,46 +598,46 @@ const Chatbot = () => {
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-  {messages.map((msg, index) => (
-    <div
-      key={index}
-      className={`mb-3 ${
-        msg.sender === "bot" ? "text-left" : "text-right"
-      }`}
-    >
-      <span
-        className={`relative inline-block px-4 py-6 rounded-lg ${
-          msg.sender === "bot"
-            ? "bg-botBackgroundColor text-black border border-black-500"
-            : "bg-sendColor text-black"
-        }`}
-        style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
-      >
-        {msg.text.includes(`${baseURL}/pdf`) ? (
-          <button
-            onClick={() => window.open(msg.text, "_blank")}
-            className="text-blue-500 underline"
-          >
-            View PDF
-          </button>
-        ) : msg.text.startsWith("https") ? (
-          <a
-            href={msg.text}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 underline"
-          >
-            {msg.text}
-          </a>
-        ) : (
-          msg.text
-        )}
-        <span className="absolute bottom-1 right-2 text-sm text-gray-500">
-          {msg.time}
-        </span>
-      </span>
-    </div>
-  ))}
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`mb-3 ${
+                  msg.sender === "bot" ? "text-left" : "text-right"
+                }`}
+              >
+                <span
+                  className={`relative inline-block px-4 py-6 rounded-lg ${
+                    msg.sender === "bot"
+                      ? "bg-botBackgroundColor text-black border border-black-500"
+                      : "bg-sendColor text-black"
+                  }`}
+                  style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
+                >
+                  {msg.text.includes(`${baseURL}/pdf`) ? (
+                    <button
+                      onClick={() => window.open(msg.text, "_blank")}
+                      className="text-blue-500 underline"
+                    >
+                      View PDF
+                    </button>
+                  ) : msg.text.startsWith("https") ? (
+                    <a
+                      href={msg.text}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 underline"
+                    >
+                      {msg.text}
+                    </a>
+                  ) : (
+                    msg.text
+                  )}
+                  <span className="absolute bottom-1 right-2 text-sm text-gray-500">
+                    {msg.time}
+                  </span>
+                </span>
+              </div>
+            ))}
 
             {/* Extracted Information Display */}
             {extractedInfo && (
@@ -652,7 +647,12 @@ const Chatbot = () => {
                 </h3>
                 <div className="space-y-2">
                   {Object.entries(extractedInfo).map(([field, value]) => (
-                    <ExtractedField key={field} field={field} value={value} onSave={handleSaveField} />
+                    <ExtractedField
+                      key={field}
+                      field={field}
+                      value={value}
+                      onSave={handleSaveField}
+                    />
                   ))}
                 </div>
                 <div className="flex justify-end mt-4">
@@ -681,10 +681,16 @@ const Chatbot = () => {
               </div>
             )}
 
-            {options.map((option, index) => (
+            {[...options, ...documentOptions].map((option, index) => (
               <button
                 key={index}
-                onClick={() => handleOptionClick(option)}
+                onClick={() => {
+                  if (documentOptions.includes(option)) {
+                    handleDocumentOptionClick(option);
+                  } else {
+                    handleOptionClick(option);
+                  }
+                }}
                 className="block w-full bg-gray-200 text-black text-sm py-2 px-4 rounded-lg mb-2 hover:bg-gray-300 transition"
               >
                 {option}

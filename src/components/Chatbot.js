@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import axiosInstance, { baseURL } from "../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
-
+import MessageContentRenderer from './DocumentImage';
+import DocumentAnalysisLoading from "./DocumentAnalysisLoading";
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -18,6 +19,7 @@ const Chatbot = () => {
   const [editingField, setEditingField] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [file, setFile] = useState(null);
+  const [analysisStage, setAnalysisStage] = useState(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -27,6 +29,12 @@ const Chatbot = () => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
 
+  useEffect(()=>{
+    if(loading){
+      setOptions([])
+      setDocumentOptions([])
+    }
+  },[loading])
   const formatExtractedInfoAsText = (info) => {
     if (!info) return "";
 
@@ -45,22 +53,31 @@ const Chatbot = () => {
     const uploadedFile = e.target.files[0];
     if (uploadedFile) {
       setLoading(true);
-
+      setAnalysisStage('uploading');
+  
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("user_id", userId);
-
+  
       try {
+        // Show different stages with delays
+        setTimeout(() => setAnalysisStage('analyzing'), 1000);
+        setTimeout(() => setAnalysisStage('extracting'), 2500);
+  
         const response = await axiosInstance.post("/extract-image/", formData, {
           headers: {
             "Content-Type": "multipart/form-data",
           },
         });
-
+  
+        setAnalysisStage('complete');
+        setTimeout(() => setAnalysisStage(null), 1500); // Clear the stage after showing completion
+  
         console.log("Extracted Information:", response.data);
         setExtractedInfo(response.data);
       } catch (error) {
         console.error("Error processing document:", error);
+        setAnalysisStage(null);
         setMessages((prev) => [
           ...prev,
           {
@@ -74,7 +91,6 @@ const Chatbot = () => {
       }
     }
   };
-
   const handleSaveField = (field, newValue) => {
     setExtractedInfo((prev) => ({
       ...prev,
@@ -464,13 +480,7 @@ const handleSendMessage = async (
     }
   };
 
-  // Handle file upload
-  const handleFileAttach1 = (e) => {
-    const uploadedFile = e.target.files[0];
-    if (uploadedFile) {
-      setFile(uploadedFile);
-    }
-  };
+
 
   // Handle file removal
   const handleFileRemove = () => {
@@ -598,7 +608,7 @@ const handleSendMessage = async (
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-            {messages.map((msg, index) => (
+           {messages.map((msg, index) => (
               <div
                 key={index}
                 className={`mb-3 ${
@@ -613,32 +623,15 @@ const handleSendMessage = async (
                   }`}
                   style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
                 >
-                  {msg.text.includes(`${baseURL}/pdf`) ? (
-                    <button
-                      onClick={() => window.open(msg.text, "_blank")}
-                      className="text-blue-500 underline"
-                    >
-                      View PDF
-                    </button>
-                  ) : msg.text.startsWith("https") ? (
-                    <a
-                      href={msg.text}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 underline"
-                    >
-                      {msg.text}
-                    </a>
-                  ) : (
-                    msg.text
-                  )}
+                  <MessageContentRenderer msg={msg} baseURL={baseURL} />
+
                   <span className="absolute bottom-1 right-2 text-sm text-gray-500">
                     {msg.time}
                   </span>
                 </span>
               </div>
             ))}
-
+{analysisStage && <DocumentAnalysisLoading stage={analysisStage} />}
             {/* Extracted Information Display */}
             {extractedInfo && (
               <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">

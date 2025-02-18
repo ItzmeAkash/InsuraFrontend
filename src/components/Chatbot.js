@@ -4,6 +4,8 @@ import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
 import MessageContentRenderer from './DocumentImage';
 import DocumentAnalysisLoading from "./DocumentAnalysisLoading";
+import CustomDropdown from "./CustomDropdown";
+
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -20,6 +22,9 @@ const Chatbot = () => {
   const [editValue, setEditValue] = useState("");
   const [file, setFile] = useState(null);
   const [analysisStage, setAnalysisStage] = useState(null);
+  const [dropdownOptions, setDropdownOptions] = useState([]);
+  const [dropdownPlaceholder, setDropdownPlaceholder] = useState("Select an option");
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -183,7 +188,8 @@ const Chatbot = () => {
 
 const handleSendMessage = async (
   extractedData = null,
-  isDocumentCompleted = false
+  isDocumentCompleted = false,
+  dropdownSelection = null
 ) => {
   console.log("handleSendMessage called with:", {
     extractedData,
@@ -250,7 +256,9 @@ const handleSendMessage = async (
 
   try {
     const messageText = isDocumentCompleted
-      ? "Download completed"
+    ? "Download completed"
+    : dropdownSelection 
+      ? dropdownSelection
       : formatMessageText(extractedData, input);
     if (!messageText) return;
 
@@ -332,6 +340,20 @@ const handleSendMessage = async (
         time: getCurrentTime(),
       });
     }
+    if (response.data.dropdown) {
+      if (Array.isArray(response.data.dropdown.options)) {
+        setDropdownOptions(response.data.dropdown.options);
+        if (response.data.dropdown.placeholder) {
+          setDropdownPlaceholder(response.data.dropdown.placeholder);
+        }
+      } else if (typeof response.data.dropdown === 'string') {
+        // Handle case where dropdown might be a comma-separated string
+        setDropdownOptions(response.data.dropdown.split(', '));
+      }
+    } else {
+      setDropdownOptions([]);
+    }
+
 
     // Check for document_name in the response
     if (response.data.document_name) {
@@ -480,7 +502,11 @@ const handleSendMessage = async (
     }
   };
 
-
+  const handleDropdownSelect = (option) => {
+    // Handle the selected dropdown option
+    handleSendMessage(null, false, option);
+    setDropdownOptions([]); // Clear dropdown after selection
+  };
 
   // Handle file removal
   const handleFileRemove = () => {
@@ -689,6 +715,16 @@ const handleSendMessage = async (
                 {option}
               </button>
             ))}
+                        {dropdownOptions.length > 0 && (
+              <div className="mb-4">
+                <CustomDropdown
+                  options={dropdownOptions}
+                  onSelect={handleDropdownSelect}
+                  placeholder={dropdownPlaceholder}
+                  className="w-full"
+                />
+              </div>
+            )}
 
             <div ref={messagesEndRef}></div>
           </div>

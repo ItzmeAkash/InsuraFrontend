@@ -69,11 +69,20 @@ const Chatbot = () => {
         setTimeout(() => setAnalysisStage('analyzing'), 1000);
         setTimeout(() => setAnalysisStage('extracting'), 2500);
   
-        const response = await axiosInstance.post("/extract-image/", formData, {
+        let response;
+        if (uploadedFile.type === "application/pdf") {
+        response = await axiosInstance.post("/extract-pdf/", formData, {
           headers: {
             "Content-Type": "multipart/form-data",
           },
         });
+      } else {
+        response = await axiosInstance.post("/extract-image/", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+      }
   
         setAnalysisStage('complete');
         setTimeout(() => setAnalysisStage(null), 1500); // Clear the stage after showing completion

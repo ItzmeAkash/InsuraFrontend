@@ -1,41 +1,117 @@
 import React, { useState, useEffect, useRef } from "react";
-import axiosInstance from "../../axiosInstance";
+import axiosInstance, { baseURL } from "../../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
+import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
+import MessageContentRenderer from '../DocumentImage';
+import DocumentAnalysisLoading from "../DocumentAnalysisLoading";
+import CustomDropdown from "../CustomDropdown";
 
 const VoiceBot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [options, setOptions] = useState([]);
+  const [documentOptions, setDocumentOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState("");
   const [awaitingName, setAwaitingName] = useState(false);
   const messagesEndRef = useRef(null);
-  const audioRef = useRef(null); // Reference for the audio element
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [extractedInfo, setExtractedInfo] = useState(null);
+  const [editingField, setEditingField] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const [file, setFile] = useState(null);
+  const [analysisStage, setAnalysisStage] = useState(null);
+  const [dropdownOptions, setDropdownOptions] = useState([]);
+  const [dropdownPlaceholder, setDropdownPlaceholder] = useState("Select an option");
+  const audioRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleFileUpload = async () => {
-    if (!file) return null;
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      const response = await axiosInstance.post("/upload/", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return response.data.filePath; // Adjust based on your API response
-    } catch (error) {
-      console.error("File upload failed:", error);
-      return null;
-    }
-  };
-
   useEffect(() => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
+
+  useEffect(()=>{
+    if(loading){
+      setOptions([])
+      setDocumentOptions([])
+    }
+  },[loading])
+
+  const formatExtractedInfoAsText = (info) => {
+    if (!info) return "";
+
+    return Object.entries(info)
+      .map(([key, value]) => {
+        const formattedKey = key
+          .split("_")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+        return `${formattedKey}: ${value}`;
+      })
+      .join("\n");
+  };
+
+  const handleFileAttach = async (e) => {
+    const uploadedFile = e.target.files[0];
+    if (uploadedFile) {
+      setLoading(true);
+      setAnalysisStage('uploading');
+  
+      const formData = new FormData();
+      formData.append("file", uploadedFile);
+      formData.append("user_id", userId);
+  
+      try {
+        // Show different stages with delays
+        setTimeout(() => setAnalysisStage('analyzing'), 1000);
+        setTimeout(() => setAnalysisStage('extracting'), 2500);
+  
+        let response;
+        if (uploadedFile.type === "application/pdf") {
+        response = await axiosInstance.post("/extract-pdf/", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+      } else {
+        response = await axiosInstance.post("/extract-image/", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+      }
+  
+        setAnalysisStage('complete');
+        setTimeout(() => setAnalysisStage(null), 1500); // Clear the stage after showing completion
+  
+        console.log("Extracted Information:", response.data);
+        setExtractedInfo(response.data);
+      } catch (error) {
+        console.error("Error processing document:", error);
+        setAnalysisStage(null);
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "bot",
+            text: "Sorry, I couldn't process your document. Please try again.",
+            time: getCurrentTime(),
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+  const handleSaveField = (field, newValue) => {
+    setExtractedInfo((prev) => ({
+      ...prev,
+      [field]: newValue,
+    }));
+  };
 
   const getCurrentTime = () => {
     return new Date().toLocaleTimeString([], {
@@ -45,7 +121,8 @@ const VoiceBot = () => {
     });
   };
 
-  const sendToDeepgram = async (text) => {
+//   auDUI
+const sendToDeepgram = async (text) => {
     const deepgramApiKey = 'fb2ee994547c33bf1ce4eb418d61106aa218f30c';
     try {
       const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-luna-en', {
@@ -99,7 +176,6 @@ const VoiceBot = () => {
       textQueue = [];
     }
   };
-
   const sendHiddenMessage = async () => {
     setLoading(true);
     try {
@@ -161,11 +237,13 @@ const VoiceBot = () => {
           ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
           : []),
       ];
-
       setMessages((prev) => [...prev, ...botMessages]);
       setOptions(response.data.options ? response.data.options.split(", ") : []);
-
-      // Send messages to Deepgram
+      setDocumentOptions(
+        response.data.document_options
+          ? response.data.document_options.split(", ")
+          : []
+      );
       botMessages.forEach(msg => sendToDeepgram(msg.text));
     } catch (error) {
       console.error("Error triggering initial message:", error);
@@ -180,109 +258,239 @@ const VoiceBot = () => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim() && !file) return;
+const handleSendMessage = async (
+  extractedData = null,
+  isDocumentCompleted = false,
+  dropdownSelection = null
+) => {
+  stopAudioPlayback();
+  console.log("handleSendMessage called with:", {
+    extractedData,
+    isDocumentCompleted,
+  });
 
-    stopAudioPlayback(); // Stop audio playback when sending a message
+  const getCurrentTime = () => {
+    return new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
 
-    const displayMessage = file ? file.name : input;
+  const isCircularReference = (obj, seen = new WeakSet()) => {
+    if (obj && typeof obj === "object") {
+      if (seen.has(obj)) {
+        return true;
+      }
+      seen.add(obj);
+      for (const key in obj) {
+        if (isCircularReference(obj[key], seen)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const sanitizeData = (value, seen = new WeakSet()) => {
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => sanitizeData(item, seen));
+    }
+
+    if (
+      value instanceof Element ||
+      value instanceof HTMLElement ||
+      value === window ||
+      value === document ||
+      typeof value === "function" ||
+      isCircularReference(value, seen)
+    ) {
+      return null;
+    }
+
+    const sanitized = {};
+    seen.add(value);
+    for (const [key, val] of Object.entries(value)) {
+      sanitized[key] = sanitizeData(val, seen);
+    }
+    return sanitized;
+  };
+
+  const formatMessageText = (extractedData, input) => {
+    if (extractedData) {
+      return JSON.stringify(sanitizeData(extractedData));
+    }
+    return input ? input.trim() : "";
+  };
+
+  try {
+    const messageText = isDocumentCompleted
+    ? "Download completed"
+    : dropdownSelection 
+      ? dropdownSelection
+      : formatMessageText(extractedData, input);
+    if (!messageText) return;
+
+    // Create user message object for backend processing
     const userMessage = {
-        sender: "user",
-        text: displayMessage,
-        time: getCurrentTime(),
+      sender: "user",
+      text: messageText,
+      time: getCurrentTime(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // Display a fixed success message in the UI when extracted data is present
+    const displayMessageText = extractedData
+      ? "Document Upload successfully"
+      : messageText;
 
-    const userInput = input;
-    setInput(""); // Reset the input field
+    // Set message in state for UI
+    setMessages((prev) => [
+      ...prev,
+      {
+        sender: "user",
+        text: displayMessageText,
+        time: getCurrentTime(),
+      },
+    ]);
+
+    if (!extractedData && !isDocumentCompleted) {
+      setInput("");
+    }
 
     if (awaitingName) {
-        setUserId(userInput); // Save the user's name
-        setAwaitingName(false); // Reset awaitingName flag
-        await sendInitialTrigger(userInput); // Trigger the "Hey" message
-        return;
+      setUserId(messageText);
+      setAwaitingName(false);
+      sendInitialTrigger(messageText);
+      return;
     }
+
     setLoading(true);
-    let filePath = null;
 
-    // Upload file if it exists
-    if (file) {
-        try {
-            const formData = new FormData();
-            formData.append("file", file);
-
-            const uploadResponse = await axiosInstance.post("/upload/", formData, {
-                headers: { "Content-Type": "multipart/form-data" },
-            });
-
-            filePath = uploadResponse.data.file_path; // Full path for backend
-            console.log("File uploaded successfully:", filePath);
-        } catch (uploadError) {
-            console.error("File upload failed:", uploadError);
-            setMessages((prev) => [
-                ...prev,
-                {
-                    sender: "bot",
-                    text: "File upload failed. Please try again later.",
-                    time: getCurrentTime(),
-                },
-            ]);
-            setFile(null); // Reset file on failure
-            setLoading(false);
-            return;
-        }
+    // Add a delay before making the API call if the document is completed
+    if (isDocumentCompleted) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    // Send chat message after file upload
-    try {
-        const response = await axiosInstance.post("/chat/", {
-            message: filePath || userInput, // Send the full path or input text to backend
-            user_id: userId,
-        });
+    const response = await axiosInstance.post("/chat/", {
+      message: messageText,
+      user_id: userId,
+      is_extracted_info: Boolean(extractedData),
+    });
 
-        const botMessages = [
-            { sender: "bot", text: response.data.response, time: getCurrentTime() },
-            ...(response.data.question
-                ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
-                : []),
-            ...(response.data.example
-                ? [{ sender: "bot", text: response.data.example, time: getCurrentTime() }]
-                : []),
-            ...(response.data.link
-                ? [{ sender: "bot", text: response.data.link, time: getCurrentTime() }]
-                : []),
-        ];
-
-        setMessages((prev) => [...prev, ...botMessages]);
-        setOptions(response.data.options ? response.data.options.split(", ") : []);
-
-        // Send messages to Deepgram in the specified order
-        if (botMessages.length > 1) {
-            await sendToDeepgram(botMessages[botMessages.length - 2].text); // Second last message
-            await sendToDeepgram(botMessages[botMessages.length - 1].text); // Last message
-        } else if (botMessages.length === 1) {
-            await sendToDeepgram(botMessages[0].text); // Only one message to send
-        }
-    } catch (chatError) {
-        console.error("Error sending message:", chatError);
-        setMessages((prev) => [
-            ...prev,
-            {
-                sender: "bot",
-                text: "Sorry, something went wrong. Please try again later!",
-                time: getCurrentTime(),
-            },
-        ]);
-    } finally {
-        setFile(null); // Clear the file after sending
-        setLoading(false);
+    let botResponses = [];
+    if (response.data.response) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.response,
+        time: getCurrentTime(),
+      });
     }
+
+    if (response.data.link) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.link,
+        time: getCurrentTime(),
+      });
+    }
+
+    if (response.data.question) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.question,
+        time: getCurrentTime(),
+      });
+    }
+
+    if (response.data.example) {
+      botResponses.push({
+        sender: "bot",
+        text: response.data.example,
+        time: getCurrentTime(),
+      });
+    }
+    if (response.data.dropdown) {
+      if (Array.isArray(response.data.dropdown.options)) {
+        setDropdownOptions(response.data.dropdown.options);
+        if (response.data.dropdown.placeholder) {
+          setDropdownPlaceholder(response.data.dropdown.placeholder);
+        }
+      } else if (typeof response.data.dropdown === 'string') {
+        // Handle case where dropdown might be a comma-separated string
+        setDropdownOptions(response.data.dropdown.split(', '));
+      }
+    } else {
+      setDropdownOptions([]);
+    }
+
+
+    // Check for document_name in the response
+    if (response.data.document_name) {
+      botResponses.push({
+        sender: "bot",
+        text: `Document ${response.data.document_name} is ready.`,
+        time: getCurrentTime(),
+      });
+    }
+
+    setMessages((prev) => [...prev, ...botResponses]);
+    setOptions(
+      response.data.options ? response.data.options.split(", ") : []
+    );
+    setDocumentOptions(
+      response.data.document_options &&
+        typeof response.data.document_options === "string"
+        ? response.data.document_options.split(", ")
+        : Array.isArray(response.data.document_options)
+        ? response.data.document_options
+        : []
+    );
+
+    console.log(documentOptions);
+
+    if (extractedData) {
+      setExtractedInfo(null);
+    }
+    if (response.data.response) {
+      await sendToDeepgram(response.data.response);
+    }
+  } catch (error) {
+    console.error("Error sending message:", error);
+    setMessages((prev) => [
+      ...prev,
+      {
+        sender: "bot",
+        text: "Sorry, something went wrong. Please try again.",
+        time: getCurrentTime(),
+      },
+    ]);
+  } finally {
+    setLoading(false);
+  }
 };
+  // Define the downloadPDF function
+  const downloadPDF = (url, filename) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Update the Submit button handler
+  const handleSubmitExtractedInfo = () => {
+    if (extractedInfo) {
+      handleSendMessage(extractedInfo);
+    }
+  };
 
   const handleOptionClick = async (option) => {
-    stopAudioPlayback(); // Stop audio playback when an option is clicked
-
+    stopAudioPlayback();
     const userMessage = {
       sender: "user",
       text: option,
@@ -305,10 +513,18 @@ const VoiceBot = () => {
       ];
 
       setMessages((prev) => [...prev, ...botMessages]);
-      setOptions(response.data.options ? response.data.options.split(", ") : []);
 
-      // Send messages to Deepgram
-      botMessages.forEach(msg => sendToDeepgram(msg.text));
+      setOptions(
+        response.data.options ? response.data.options.split(", ") : []
+      );
+      setDocumentOptions(
+        response.data.document_options
+          ? response.data.document_options.split(", ")
+          : []
+      );
+      if (response.data.response) {
+        await sendToDeepgram(response.data.response);
+      }
     } catch (error) {
       console.error("Error sending option:", error);
       setMessages((prev) => [
@@ -323,7 +539,6 @@ const VoiceBot = () => {
       setLoading(false);
     }
   };
-
   const speakLastMessage = () => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
@@ -333,7 +548,27 @@ const VoiceBot = () => {
       }
     }
   };
+  const handleDocumentOptionClick = async (option) => {
+    setLoading(true);
+    try {
+      const pdfURL = `${baseURL}/pdf/${option}`;
+      downloadPDF(pdfURL, option);
 
+      await handleSendMessage(null, true);
+    } catch (error) {
+      console.error("Error generating document:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again later!",
+          time: getCurrentTime(),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
   const handleToggleChat = () => {
     setIsChatOpen((prev) => {
       const willOpen = !prev;
@@ -350,8 +585,7 @@ const VoiceBot = () => {
     });
   };
 
-  const [file, setFile] = useState(null);
-
+  // Locate file in system
   const handleFileLocate = () => {
     if (file) {
       const fileURL = URL.createObjectURL(file);
@@ -359,17 +593,108 @@ const VoiceBot = () => {
     }
   };
 
-  const handleFileAttach = (e) => {
-    const uploadedFile = e.target.files[0];
-    if (uploadedFile) {
-      setFile(uploadedFile);
-    }
+  const handleDropdownSelect = (option) => {
+    // Handle the selected dropdown option
+    handleSendMessage(null, false, option);
+    setDropdownOptions([]); // Clear dropdown after selection
   };
 
+  // Handle file removal
   const handleFileRemove = () => {
     setFile(null);
   };
 
+  const ExtractedField = ({ field, value: initialValue, onSave }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [value, setValue] = useState(initialValue);
+    const [editValue, setEditValue] = useState(initialValue);
+    const inputRef = useRef(null);
+
+    // Format display name
+    const displayName = field
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
+    // Focus input when editing starts
+    useEffect(() => {
+      if (isEditing && inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, [isEditing]);
+
+    const handleEditStart = () => {
+      setIsEditing(true);
+      setEditValue(value);
+    };
+
+    const handleSave = () => {
+      setValue(editValue);
+      setIsEditing(false);
+      if (onSave) {
+        onSave(field, editValue);
+      }
+    };
+
+    const handleCancel = () => {
+      setIsEditing(false);
+      setEditValue(value);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Enter") {
+        handleSave();
+      } else if (e.key === "Escape") {
+        handleCancel();
+      }
+    };
+
+    return (
+      <div className="flex items-center justify-between p-2 border-b border-gray-200 hover:bg-gray-50">
+        <div className="font-medium text-gray-700">{displayName}</div>
+        <div className="flex items-center gap-2">
+          {isEditing ? (
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-200 w-full"
+                autoFocus
+              />
+              <button
+                onClick={handleSave}
+                className="p-1 text-green-600 hover:text-green-800 transition-colors"
+                title="Save"
+              >
+                <FiCheck className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleCancel}
+                className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                title="Cancel"
+              >
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-900">{value}</span>
+              <button
+                onClick={handleEditStart}
+                className="p-1 text-gray-600 hover:text-gray-800 transition-colors"
+                title="Edit"
+              >
+                <FiEdit2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
   return (
     <div className="relative">
       <button
@@ -400,7 +725,7 @@ const VoiceBot = () => {
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-            {messages.map((msg, index) => (
+           {messages.map((msg, index) => (
               <div
                 key={index}
                 className={`mb-3 ${
@@ -415,24 +740,44 @@ const VoiceBot = () => {
                   }`}
                   style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
                 >
-                  {msg.text.startsWith("https") ? (
-                    <a
-                      href={msg.text}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 underline"
-                    >
-                      {msg.text}
-                    </a>
-                  ) : (
-                    msg.text
-                  )}
+                  <MessageContentRenderer msg={msg} baseURL={baseURL} />
+
                   <span className="absolute bottom-1 right-2 text-sm text-gray-500">
                     {msg.time}
                   </span>
                 </span>
               </div>
             ))}
+{analysisStage && <DocumentAnalysisLoading stage={analysisStage} />}
+            {/* Extracted Information Display */}
+            {extractedInfo && (
+              <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">
+                <h3 className="font-semibold mb-2 text-lg">
+                  Extracted Information
+                </h3>
+                <div className="space-y-2">
+                  {Object.entries(extractedInfo).map(([field, value]) => (
+                    <ExtractedField
+                      key={field}
+                      field={field}
+                      value={value}
+                      onSave={handleSaveField}
+                    />
+                  ))}
+                </div>
+                <div className="flex justify-end mt-4">
+                  <button
+                    onClick={handleSubmitExtractedInfo}
+                    disabled={loading}
+                    className={`px-4 py-2 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
+                      loading ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
+                  >
+                    Submit All
+                  </button>
+                </div>
+              </div>
+            )}
 
             {loading && messages.length > 0 && (
               <div className="mb-3 text-left">
@@ -446,21 +791,50 @@ const VoiceBot = () => {
               </div>
             )}
 
-            {options.map((option, index) => (
+            {[...options, ...documentOptions].map((option, index) => (
               <button
                 key={index}
-                onClick={() => handleOptionClick(option)}
+                onClick={() => {
+                  if (documentOptions.includes(option)) {
+                    handleDocumentOptionClick(option);
+                  } else {
+                    handleOptionClick(option);
+                  }
+                }}
                 className="block w-full bg-gray-200 text-black text-sm py-2 px-4 rounded-lg mb-2 hover:bg-gray-300 transition"
               >
                 {option}
               </button>
             ))}
+                        {dropdownOptions.length > 0 && (
+              <div className="mb-4">
+                <CustomDropdown
+                  options={dropdownOptions}
+                  onSelect={handleDropdownSelect}
+                  placeholder={dropdownPlaceholder}
+                  className="w-full"
+                />
+              </div>
+            )}
 
             <div ref={messagesEndRef}></div>
           </div>
 
           {/* Input */}
           <div className="pb-4">
+            {(uploadLoading || loading) && (
+              <div className="px-4 py-2">
+                <div className="animate-pulse flex space-x-4">
+                  <div className="flex-1 space-y-4 py-1">
+                    <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                    <div className="space-y-2">
+                      <div className="h-4 bg-gray-200 rounded"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {file && (
               <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
                 <span className="text-gray-700 text-sm">{file.name}</span>
@@ -480,22 +854,27 @@ const VoiceBot = () => {
             )}
 
             <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
-              {/* Paper Pin Icon */}
               <label className="mr-2 cursor-pointer">
                 <input
                   type="file"
                   className="hidden"
                   onChange={handleFileAttach}
+                  accept="image/*,.pdf,.doc,.docx"
                 />
-                <AiOutlinePaperClip className="pl-2 h-8 w-8 text-gray-500 hover:text-black" />
+                <AiOutlinePaperClip
+                  className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${
+                    uploadLoading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                />
               </label>
 
-              {/* Message Input */}
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
+                placeholder={
+                  file ? "Ask me about the document..." : "Type your message..."
+                }
                 className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -503,11 +882,14 @@ const VoiceBot = () => {
                   }
                 }}
               />
-
-              {/* Send Button */}
               <button
-                onClick={handleSendMessage}
-                className="ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColortransition"
+                onClick={() => handleSendMessage()}
+                className={`ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
+                  uploadLoading || loading
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                }`}
+                disabled={uploadLoading || loading}
               >
                 Send
               </button>

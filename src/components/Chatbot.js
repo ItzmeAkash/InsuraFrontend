@@ -102,6 +102,7 @@ const Chatbot = () => {
         ]);
       } finally {
         setLoading(false);
+        e.target.value = null;
       }
     }
   };

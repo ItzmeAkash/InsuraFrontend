@@ -25,7 +25,6 @@ const Chatbot = () => {
   const [dropdownOptions, setDropdownOptions] = useState([]);
   const [dropdownPlaceholder, setDropdownPlaceholder] = useState("Select an option");
 
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -34,15 +33,15 @@ const Chatbot = () => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
 
-  useEffect(()=>{
-    if(loading){
-      setOptions([])
-      setDocumentOptions([])
+  useEffect(() => {
+    if (loading) {
+      setOptions([]);
+      setDocumentOptions([]);
     }
-  },[loading])
+  }, [loading]);
+
   const formatExtractedInfoAsText = (info) => {
     if (!info) return "";
-
     return Object.entries(info)
       .map(([key, value]) => {
         const formattedKey = key
@@ -57,46 +56,48 @@ const Chatbot = () => {
   const handleFileAttach = async (e) => {
     const uploadedFile = e.target.files[0];
     if (uploadedFile) {
+      setFile(uploadedFile); // Set the file state here
       setLoading(true);
       setAnalysisStage('uploading');
-  
+
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("user_id", userId);
-  
+
       try {
-        // Show different stages with delays
         setTimeout(() => setAnalysisStage('analyzing'), 1000);
         setTimeout(() => setAnalysisStage('extracting'), 2500);
-  
+
         let response;
         if (uploadedFile.type === "application/pdf") {
-        response = await axiosInstance.post("/extract-pdf/", formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        });
-      } else {
-        response = await axiosInstance.post("/extract-image/", formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        });
-      }
-  
+          response = await axiosInstance.post("/extract-pdf/", formData, {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          });
+        } else {
+          response = await axiosInstance.post("/extract-image/", formData, {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          });
+        }
+
         setAnalysisStage('complete');
-        setTimeout(() => setAnalysisStage(null), 1500); // Clear the stage after showing completion
-  
+        setTimeout(() => setAnalysisStage(null), 1500);
+
         console.log("Extracted Information:", response.data);
         setExtractedInfo(response.data);
       } catch (error) {
         console.error("Error processing document:", error);
         setAnalysisStage(null);
+
+        const errorMessage = error.response?.data?.message || "Sorry, I couldn't process your document. Please try again.";
         setMessages((prev) => [
           ...prev,
           {
             sender: "bot",
-            text: "Sorry, I couldn't process your document. Please try again.",
+            text: errorMessage,
             time: getCurrentTime(),
           },
         ]);
@@ -106,6 +107,7 @@ const Chatbot = () => {
       }
     }
   };
+
   const handleSaveField = (field, newValue) => {
     setExtractedInfo((prev) => ({
       ...prev,
@@ -154,7 +156,6 @@ const Chatbot = () => {
   };
 
   const sendInitialTrigger = async (name) => {
-    // Send the "Hey" message after receiving the user's name
     try {
       const response = await axiosInstance.post("/chat/", {
         message: "Hey",
@@ -196,217 +197,210 @@ const Chatbot = () => {
     }
   };
 
-const handleSendMessage = async (
-  extractedData = null,
-  isDocumentCompleted = false,
-  dropdownSelection = null
-) => {
-  console.log("handleSendMessage called with:", {
-    extractedData,
-    isDocumentCompleted,
-  });
-
-  const getCurrentTime = () => {
-    return new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
+  const handleSendMessage = async (
+    extractedData = null,
+    isDocumentCompleted = false,
+    dropdownSelection = null
+  ) => {
+    console.log("handleSendMessage called with:", {
+      extractedData,
+      isDocumentCompleted,
     });
-  };
 
-  const isCircularReference = (obj, seen = new WeakSet()) => {
-    if (obj && typeof obj === "object") {
-      if (seen.has(obj)) {
-        return true;
-      }
-      seen.add(obj);
-      for (const key in obj) {
-        if (isCircularReference(obj[key], seen)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
-
-  const sanitizeData = (value, seen = new WeakSet()) => {
-    if (value === null || typeof value !== "object") {
-      return value;
-    }
-
-    if (Array.isArray(value)) {
-      return value.map((item) => sanitizeData(item, seen));
-    }
-
-    if (
-      value instanceof Element ||
-      value instanceof HTMLElement ||
-      value === window ||
-      value === document ||
-      typeof value === "function" ||
-      isCircularReference(value, seen)
-    ) {
-      return null;
-    }
-
-    const sanitized = {};
-    seen.add(value);
-    for (const [key, val] of Object.entries(value)) {
-      sanitized[key] = sanitizeData(val, seen);
-    }
-    return sanitized;
-  };
-
-  const formatMessageText = (extractedData, input) => {
-    if (extractedData) {
-      return JSON.stringify(sanitizeData(extractedData));
-    }
-    return input ? input.trim() : "";
-  };
-
-  try {
-    const messageText = isDocumentCompleted
-    ? "Download completed"
-    : dropdownSelection 
-      ? dropdownSelection
-      : formatMessageText(extractedData, input);
-    if (!messageText) return;
-
-    // Create user message object for backend processing
-    const userMessage = {
-      sender: "user",
-      text: messageText,
-      time: getCurrentTime(),
+    const getCurrentTime = () => {
+      return new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
     };
 
-    // Display a fixed success message in the UI when extracted data is present
-    const displayMessageText = extractedData
-      ? "Document Upload successfully"
-      : messageText;
-
-    // Set message in state for UI
-    setMessages((prev) => [
-      ...prev,
-      {
-        sender: "user",
-        text: displayMessageText,
-        time: getCurrentTime(),
-      },
-    ]);
-
-    if (!extractedData && !isDocumentCompleted) {
-      setInput("");
-    }
-
-    if (awaitingName) {
-      setUserId(messageText);
-      setAwaitingName(false);
-      sendInitialTrigger(messageText);
-      return;
-    }
-
-    setLoading(true);
-
-    // Add a delay before making the API call if the document is completed
-    if (isDocumentCompleted) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    const response = await axiosInstance.post("/chat/", {
-      message: messageText,
-      user_id: userId,
-      is_extracted_info: Boolean(extractedData),
-    });
-
-    let botResponses = [];
-    if (response.data.response) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.response,
-        time: getCurrentTime(),
-      });
-    }
-
-    if (response.data.link) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.link,
-        time: getCurrentTime(),
-      });
-    }
-
-    if (response.data.question) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.question,
-        time: getCurrentTime(),
-      });
-    }
-
-    if (response.data.example) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.example,
-        time: getCurrentTime(),
-      });
-    }
-    if (response.data.dropdown) {
-      if (Array.isArray(response.data.dropdown.options)) {
-        setDropdownOptions(response.data.dropdown.options);
-        if (response.data.dropdown.placeholder) {
-          setDropdownPlaceholder(response.data.dropdown.placeholder);
+    const isCircularReference = (obj, seen = new WeakSet()) => {
+      if (obj && typeof obj === "object") {
+        if (seen.has(obj)) {
+          return true;
         }
-      } else if (typeof response.data.dropdown === 'string') {
-        // Handle case where dropdown might be a comma-separated string
-        setDropdownOptions(response.data.dropdown.split(', '));
+        seen.add(obj);
+        for (const key in obj) {
+          if (isCircularReference(obj[key], seen)) {
+            return true;
+          }
+        }
       }
-    } else {
-      setDropdownOptions([]);
-    }
+      return false;
+    };
 
+    const sanitizeData = (value, seen = new WeakSet()) => {
+      if (value === null || typeof value !== "object") {
+        return value;
+      }
 
-    // Check for document_name in the response
-    if (response.data.document_name) {
-      botResponses.push({
-        sender: "bot",
-        text: `Document ${response.data.document_name} is ready.`,
+      if (Array.isArray(value)) {
+        return value.map((item) => sanitizeData(item, seen));
+      }
+
+      if (
+        value instanceof Element ||
+        value instanceof HTMLElement ||
+        value === window ||
+        value === document ||
+        typeof value === "function" ||
+        isCircularReference(value, seen)
+      ) {
+        return null;
+      }
+
+      const sanitized = {};
+      seen.add(value);
+      for (const [key, val] of Object.entries(value)) {
+        sanitized[key] = sanitizeData(val, seen);
+      }
+      return sanitized;
+    };
+
+    const formatMessageText = (extractedData, input) => {
+      if (extractedData) {
+        return JSON.stringify(sanitizeData(extractedData));
+      }
+      return input ? input.trim() : "";
+    };
+
+    try {
+      const messageText = isDocumentCompleted
+        ? "Download completed"
+        : dropdownSelection
+        ? dropdownSelection
+        : formatMessageText(extractedData, input);
+      if (!messageText) return;
+
+      const userMessage = {
+        sender: "user",
+        text: messageText,
         time: getCurrentTime(),
+      };
+
+      const displayMessageText = extractedData
+        ? "Document Upload successfully"
+        : messageText;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "user",
+          text: displayMessageText,
+          time: getCurrentTime(),
+        },
+      ]);
+
+      if (!extractedData && !isDocumentCompleted) {
+        setInput("");
+      }
+
+      if (awaitingName) {
+        setUserId(messageText);
+        setAwaitingName(false);
+        sendInitialTrigger(messageText);
+        return;
+      }
+
+      setLoading(true);
+
+      if (isDocumentCompleted) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      const response = await axiosInstance.post("/chat/", {
+        message: messageText,
+        user_id: userId,
+        is_extracted_info: Boolean(extractedData),
       });
+
+      let botResponses = [];
+      if (response.data.response) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.response,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.link) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.link,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.question) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.question,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.example) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.example,
+          time: getCurrentTime(),
+        });
+      }
+      if (response.data.dropdown) {
+        if (Array.isArray(response.data.dropdown.options)) {
+          setDropdownOptions(response.data.dropdown.options);
+          if (response.data.dropdown.placeholder) {
+            setDropdownPlaceholder(response.data.dropdown.placeholder);
+          }
+        } else if (typeof response.data.dropdown === 'string') {
+          setDropdownOptions(response.data.dropdown.split(', '));
+        }
+      } else {
+        setDropdownOptions([]);
+      }
+
+      if (response.data.document_name) {
+        botResponses.push({
+          sender: "bot",
+          text: `Document ${response.data.document_name} is ready.`,
+          time: getCurrentTime(),
+        });
+      }
+
+      setMessages((prev) => [...prev, ...botResponses]);
+      setOptions(
+        response.data.options ? response.data.options.split(", ") : []
+      );
+      setDocumentOptions(
+        response.data.document_options &&
+          typeof response.data.document_options === "string"
+          ? response.data.document_options.split(", ")
+          : Array.isArray(response.data.document_options)
+          ? response.data.document_options
+          : []
+      );
+
+      console.log(documentOptions);
+
+      if (extractedData) {
+        setExtractedInfo(null);
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again.",
+          time: getCurrentTime(),
+        },
+      ]);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setMessages((prev) => [...prev, ...botResponses]);
-    setOptions(
-      response.data.options ? response.data.options.split(", ") : []
-    );
-    setDocumentOptions(
-      response.data.document_options &&
-        typeof response.data.document_options === "string"
-        ? response.data.document_options.split(", ")
-        : Array.isArray(response.data.document_options)
-        ? response.data.document_options
-        : []
-    );
-
-    console.log(documentOptions);
-
-    if (extractedData) {
-      setExtractedInfo(null);
-    }
-  } catch (error) {
-    console.error("Error sending message:", error);
-    setMessages((prev) => [
-      ...prev,
-      {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again.",
-        time: getCurrentTime(),
-      },
-    ]);
-  } finally {
-    setLoading(false);
-  }
-};
-  // Define the downloadPDF function
   const downloadPDF = (url, filename) => {
     const link = document.createElement("a");
     link.href = url;
@@ -416,7 +410,6 @@ const handleSendMessage = async (
     document.body.removeChild(link);
   };
 
-  // Update the Submit button handler
   const handleSubmitExtractedInfo = () => {
     if (extractedInfo) {
       handleSendMessage(extractedInfo);
@@ -496,6 +489,7 @@ const handleSendMessage = async (
       setLoading(false);
     }
   };
+
   const handleToggleChat = () => {
     setIsChatOpen((prev) => {
       const willOpen = !prev;
@@ -504,7 +498,6 @@ const handleSendMessage = async (
     });
   };
 
-  // Locate file in system
   const handleFileLocate = () => {
     if (file) {
       const fileURL = URL.createObjectURL(file);
@@ -513,12 +506,10 @@ const handleSendMessage = async (
   };
 
   const handleDropdownSelect = (option) => {
-    // Handle the selected dropdown option
     handleSendMessage(null, false, option);
-    setDropdownOptions([]); // Clear dropdown after selection
+    setDropdownOptions([]);
   };
 
-  // Handle file removal
   const handleFileRemove = () => {
     setFile(null);
   };
@@ -529,13 +520,11 @@ const handleSendMessage = async (
     const [editValue, setEditValue] = useState(initialValue);
     const inputRef = useRef(null);
 
-    // Format display name
     const displayName = field
       .split("_")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
 
-    // Focus input when editing starts
     useEffect(() => {
       if (isEditing && inputRef.current) {
         inputRef.current.focus();
@@ -614,6 +603,7 @@ const handleSendMessage = async (
       </div>
     );
   };
+
   return (
     <div className="relative">
       <button
@@ -754,7 +744,7 @@ const handleSendMessage = async (
               </div>
             )}
 
-            {file && (
+            {/* {file && (
               <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
                 <span className="text-gray-700 text-sm">{file.name}</span>
                 <div className="flex space-x-2">
@@ -770,7 +760,7 @@ const handleSendMessage = async (
                   />
                 </div>
               </div>
-            )}
+            )} */}
 
             <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
               <label className="mr-2 cursor-pointer">
@@ -791,9 +781,7 @@ const handleSendMessage = async (
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  file ? "Ask me about the document..." : "Type your message..."
-                }
+                placeholder="Type your message..."
                 className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {

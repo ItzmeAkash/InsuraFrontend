@@ -21,7 +21,7 @@ const MainPage = () => {
         </h1>
       </div>
       <div className="fixed top-5 right-5 bg-white text-gray-800 px-4 py-2 rounded-full shadow-md z-10">
-        v.2.8
+        v.2.8.1
       </div>
       {/* Chatbot Component */}
       <div className="fixed bottom-5 right-5 z-10">

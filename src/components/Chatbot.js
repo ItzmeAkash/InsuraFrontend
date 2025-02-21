@@ -658,7 +658,7 @@ const Chatbot = () => {
               </div>
             ))}
 {analysisStage && <DocumentAnalysisLoading stage={analysisStage} />}
-            {/* Extracted Information Display */}
+            {/* Extracted Information Displays */}
             {extractedInfo && (
               <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">
                 <h3 className="font-semibold mb-2 text-lg">

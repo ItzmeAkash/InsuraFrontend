@@ -55,56 +55,59 @@ const Chatbot = () => {
 
   const handleFileAttach = async (e) => {
     const uploadedFile = e.target.files[0];
-    if (uploadedFile) {
-      setFile(uploadedFile); // Set the file state here
+    if (!uploadedFile) return;
+  
+    try {
+      setFile(uploadedFile);
       setLoading(true);
       setAnalysisStage('uploading');
-
+  
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("user_id", userId);
-
-      try {
-        setTimeout(() => setAnalysisStage('analyzing'), 1000);
-        setTimeout(() => setAnalysisStage('extracting'), 2500);
-
-        let response;
-        if (uploadedFile.type === "application/pdf") {
-          response = await axiosInstance.post("/extract-pdf/", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          });
-        } else {
-          response = await axiosInstance.post("/extract-image/", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          });
-        }
-
-        setAnalysisStage('complete');
-        setTimeout(() => setAnalysisStage(null), 1500);
-
-        console.log("Extracted Information:", response.data);
-        setExtractedInfo(response.data);
-      } catch (error) {
-        console.error("Error processing document:", error);
-        setAnalysisStage(null);
-
-        const errorMessage = error.response?.data?.message || "Sorry, I couldn't process your document. Please try again.";
-        setMessages((prev) => [
-          ...prev,
-          {
-            sender: "bot",
-            text: errorMessage,
-            time: getCurrentTime(),
-          },
-        ]);
-      } finally {
-        setLoading(false);
-        e.target.value = null;
-      }
+  
+      // Ensure formData is properly set before making the request
+      console.log('FormData contents:', ...formData); // Debug log
+  
+      const endpoint = uploadedFile.type === "application/pdf" 
+        ? "/extract-pdf/"
+        : "/extract-image/";
+  
+      // Make sure to wait for the API call to complete
+      const response = await axiosInstance.post(endpoint, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        // Add timeout and retry logic
+        timeout: 30000, // 30 seconds
+        retries: 3,
+      });
+  
+      setAnalysisStage('complete');
+      console.log("Extracted Information:", response.data);
+      setExtractedInfo(response.data);
+  
+    } catch (error) {
+      console.error("Error details:", {
+        message: error.message,
+        response: error.response,
+        request: error.request
+      });
+      
+      setAnalysisStage(null);
+      const errorMessage = error.response?.data?.message || 
+        "Sorry, I couldn't process your document. Please try again.";
+      
+      setMessages(prev => [...prev, {
+        sender: "bot",
+        text: errorMessage,
+        time: getCurrentTime(),
+      }]);
+  
+    } finally {
+      setLoading(false);
+      e.target.value = null;
+      setTimeout(() => setAnalysisStage(null), 1500);
     }
   };
 

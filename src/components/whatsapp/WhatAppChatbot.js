@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import axiosInstance, { baseURL } from "../axiosInstance";
+import axiosInstance, { baseURL } from "../../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
-import MessageContentRenderer from "./DocumentImage";
-import DocumentAnalysisLoading from "./DocumentAnalysisLoading";
-import CustomDropdown from "./CustomDropdown";
+import MessageContentRenderer from "../DocumentImage";
+import DocumentAnalysisLoading from "../DocumentAnalysisLoading";
+import CustomDropdown from "../CustomDropdown";
 
-const Chatbot = () => {
+const WhatAppChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -97,6 +97,7 @@ const Chatbot = () => {
         headers: {
           "Content-Type": "multipart/form-data",
         },
+        timeout: 30000, // 30 seconds
         retries: 3,
       });
       
@@ -832,4 +833,4 @@ const Chatbot = () => {
   );
 };
 
-export default Chatbot;
+export default WhatAppChatbot;

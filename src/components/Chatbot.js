@@ -54,6 +54,7 @@ const Chatbot = () => {
       .join("\n");
   };
 
+
   const handleFileAttach = async (e) => {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
@@ -63,59 +64,54 @@ const Chatbot = () => {
       setLoading(true);
       setAnalysisStage("uploading");
       
-      const formData = new FormData();
-      formData.append("file", uploadedFile);
-      formData.append("user_id", userId);
-      
-      // Debug log
-      console.log("FormData contents:", ...formData);
-      
-      // Determine the appropriate endpoint based on file type and context
-      let endpoint;
-      
-      // Check if this is a driving license upload request
-      const isDrivingLicense = messages.some(msg => 
-        msg.sender === "bot" && 
-        msg.text.includes("Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license") ||
-        msg.text.includes("Let's Move back to Please Upload Your Driving license")
-      );
-      
-      if (isDrivingLicense) {
-        // Use license-specific endpoints
-        endpoint = uploadedFile.type === "application/pdf" 
-          ? "/extract-pdf-licence/" 
-          : "/extract-image-licence/";
+      // Handle multiple files if selected
+      if (e.target.files.length > 1) {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        const images = await Promise.all(
+          Array.from(e.target.files).map((file) => {
+            return new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = reject;
+              img.src = URL.createObjectURL(file);
+            });
+          })
+        );
+        
+        const totalWidth = images.reduce((sum, img) => sum + img.width, 0);
+        const maxHeight = Math.max(...images.map((img) => img.height));
+        canvas.width = totalWidth;
+        canvas.height = maxHeight;
+        
+        let xOffset = 0;
+        images.forEach((img) => {
+          ctx.drawImage(img, xOffset, 0);
+          xOffset += img.width;
+        });
+        
+        canvas.toBlob(async (blob) => {
+          const combinedFile = new File([blob], "combined.png", {
+            type: "image/png",
+          });
+          
+          // Use the combined file instead of the original
+          await uploadFile(combinedFile);
+        }, "image/png");
       } else {
-        // Use standard document endpoints
-        endpoint = uploadedFile.type === "application/pdf" 
-          ? "/extract-pdf/" 
-          : "/extract-image/";
+        // Process single file
+        await uploadFile(uploadedFile);
       }
-      
-      // Make API call
-      const response = await axiosInstance.post(endpoint, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        retries: 3,
-      });
-      
-      setAnalysisStage("complete");
-      console.log("Extracted Information:", response.data);
-      setExtractedInfo(response.data);
-      
     } catch (error) {
       console.error("Error details:", {
         message: error.message,
         response: error.response,
         request: error.request,
       });
-      
-      setAnalysisStage(null);
+      setAnalysisStage("error");
       const errorMessage =
         error.response?.data?.message ||
         "Sorry, I couldn't process your document. Please try again.";
-        
       setMessages((prev) => [
         ...prev,
         {
@@ -125,10 +121,102 @@ const Chatbot = () => {
         },
       ]);
       
+      // Hide error stage after 1.5 seconds
+      setTimeout(() => setAnalysisStage(null), 1500);
     } finally {
       setLoading(false);
       e.target.value = null;
-      setTimeout(() => setAnalysisStage(null), 1500);
+    }
+    
+    // Helper function to upload the file
+    async function uploadFile(fileToUpload) {
+      const formData = new FormData();
+      formData.append("file", fileToUpload);
+      formData.append("user_id", userId);
+      
+      // Debug log
+      console.log("FormData contents:", ...formData);
+      
+      // Determine document type and appropriate endpoint
+      const endpoint = determineEndpoint(fileToUpload);
+      
+      // Make API call
+      const response = await axiosInstance.post(endpoint, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+        retries: 3,
+      });
+      
+      // Set analysis stage to complete - this will show "Analysis complete!" to the user
+      setAnalysisStage("complete");
+      console.log("Extracted Information:", response.data);
+      setExtractedInfo(response.data);
+      
+      // Add a slight delay before showing the confirmation message
+      // This ensures the user sees the "Analysis complete!" notification
+      setTimeout(() => {
+        // Hide analysis stage
+        setAnalysisStage(null);
+        
+        // Update messages based on document type
+        updateMessageForDocumentType(endpoint);
+      }, 500);
+    }
+    
+    // Helper to determine the correct endpoint based on conversation state
+    function determineEndpoint(fileToUpload) {
+      // Check document request status in conversation history
+      const licenseRequested = messages.some(msg =>
+        msg.sender === "bot" &&
+        (msg.text.includes("Please Upload Your Driving license") || 
+         msg.text.includes("Let's Move back to Please Upload Your Driving license"))
+      );
+      
+      const licenseCompleted = messages.some(msg =>
+        msg.sender === "bot" &&
+        msg.text.includes("Thank you for uploading the Driving license")
+      );
+      
+      const mulkiyaRequested = messages.some(msg =>
+        msg.sender === "bot" &&
+        (msg.text.includes("Please Upload Mulkiya") || 
+         msg.text.includes("Let's Move back to Please Upload Mulkiya"))
+      );
+      
+      const mulkiyaCompleted = messages.some(msg =>
+        msg.sender === "bot" &&
+        msg.text.includes("Thank you for uploading the Mulkiya")
+      );
+      
+      // Determine appropriate endpoint
+      if (licenseRequested && !licenseCompleted) {
+        return "/extract-licence/";
+      } else if (mulkiyaRequested && !mulkiyaCompleted) {
+        return "/extract-mulkiya/";  // Fixed endpoint name
+      } else {
+          return "/extract-emirate/"
+      }
+    }
+    
+    // Helper to update messages based on document type
+    function updateMessageForDocumentType(endpoint) {
+      let confirmationMessage = "Thank you for uploading the document.";
+      
+      if (endpoint === "/extract-licence/") {
+        confirmationMessage = "Thank you for uploading the Driving license. Now, let's move on to: Please Upload Mulkiya";
+      } else if (endpoint === "/extract-mulkiya/") {  // Fixed endpoint name to match determineEndpoint
+        confirmationMessage = "Thank you for uploading the Mulkiya. Your document processing is complete.";
+      }
+      
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: confirmationMessage,
+          time: getCurrentTime(),
+        },
+      ]);
     }
   };
 
@@ -793,6 +881,7 @@ const Chatbot = () => {
                   className="hidden"
                   onChange={handleFileAttach}
                   accept="image/*,.pdf,.doc,.docx"
+                  multiple
                 />
                 <AiOutlinePaperClip
                   className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${

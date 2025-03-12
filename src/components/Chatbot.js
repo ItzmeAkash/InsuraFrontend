@@ -170,7 +170,7 @@ const Chatbot = () => {
       const licenseRequested = messages.some(msg =>
         msg.sender === "bot" &&
         (msg.text.includes("Please Upload Your Driving license") || 
-         msg.text.includes("Let's Move back to Please Upload Your Driving license"))
+         msg.text.includes("Let's Move back to Please Upload Your Driving license") || msg.text.includes("Thank you,Please Upload Your Driving license"))
       );
       
       const licenseCompleted = messages.some(msg =>

@@ -167,10 +167,13 @@ const Chatbot = () => {
     // Helper to determine the correct endpoint based on conversation state
     function determineEndpoint(fileToUpload) {
       // Check document request status in conversation history
-      const licenseRequested = messages.some(msg =>
+      const licenseRequested = messages.some(msg => 
         msg.sender === "bot" &&
-        (msg.text.includes("Please Upload Your Driving license") || 
-         msg.text.includes("Let's Move back to Please Upload Your Driving license") || msg.text.includes("Thank you,Please Upload Your Driving license"))
+        (
+          msg.text.includes("Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license") || 
+          msg.text.includes("Let's move back to Please Upload Your Driving license") || 
+          msg.text.includes("Thank you, Please upload your driving license")
+        )
       );
       
       const licenseCompleted = messages.some(msg =>
@@ -181,7 +184,7 @@ const Chatbot = () => {
       const mulkiyaRequested = messages.some(msg =>
         msg.sender === "bot" &&
         (msg.text.includes("Please Upload Mulkiya") || 
-         msg.text.includes("Let's Move back to Please Upload Mulkiya"))
+         msg.text.includes("Let's Move back to Please Upload Mulkiya") || msg.text.includes("Thank you for uploading the document. Now, let's move on to: Please Upload Mulkiya") )
       );
       
       const mulkiyaCompleted = messages.some(msg =>
@@ -204,9 +207,9 @@ const Chatbot = () => {
       let confirmationMessage = "Thank you for uploading the document.";
       
       if (endpoint === "/extract-licence/") {
-        confirmationMessage = "Thank you for uploading the Driving license. Now, let's move on to: Please Upload Mulkiya";
+        confirmationMessage = "Thank you for uploading the Driving license";
       } else if (endpoint === "/extract-mulkiya/") {  // Fixed endpoint name to match determineEndpoint
-        confirmationMessage = "Thank you for uploading the Mulkiya. Your document processing is complete.";
+        confirmationMessage = "Thank you for uploading the Mulkiya";
       }
       
       setMessages((prev) => [

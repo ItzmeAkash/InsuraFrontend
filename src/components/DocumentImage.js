@@ -1,16 +1,30 @@
 import React from 'react';
 
 const MessageContentRenderer = ({ msg, baseURL }) => {
-  // For upload document message with image
+  // For upload document message with image (front page)
   if (msg.text === "Thank you for the responses! Now, Please Upload Your Document") {
     return (
       <div className="flex flex-col items-center">
         <p>{msg.text}</p>
         <p className="text-sm text-gray-500 mt-1">Please upload the document like this.</p>
-
         <img
           src="emirates-front.jpeg"
-          alt=""
+          alt="Front page example"
+          className="mt-2 w-48 h-auto rounded-lg shadow-md"
+        />
+      </div>
+    );
+  }
+  
+  // For back page upload message with image
+  if (msg.text.includes("Please Upload Back Page of Your Document")) {
+    return (
+      <div className="flex flex-col items-center">
+        <p>{msg.text}</p>
+        <p className="text-sm text-gray-500 mt-1">Please upload the document like this.</p>
+        <img
+          src="back.jpeg"
+          alt="Back page example"
           className="mt-2 w-48 h-auto rounded-lg shadow-md"
         />
       </div>

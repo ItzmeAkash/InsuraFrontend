@@ -164,63 +164,226 @@ const Chatbot = () => {
       }, 500);
     }
     
-    // Helper to determine the correct endpoint based on conversation state
-    function determineEndpoint(fileToUpload) {
-      // Check document request status in conversation history
-      const licenseRequested = messages.some(msg => 
-        msg.sender === "bot" &&
-        (
-          msg.text.includes("Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license") || 
-          msg.text.includes("Let's move back to Please Upload Your Driving license") || 
-          msg.text.includes("Thank you, Please upload your driving license")
-        )
-      );
-      
-      const licenseCompleted = messages.some(msg =>
-        msg.sender === "bot" &&
-        msg.text.includes("Thank you for uploading the Driving license")
-      );
-      
-      const mulkiyaRequested = messages.some(msg =>
-        msg.sender === "bot" &&
-        (msg.text.includes("Please Upload Mulkiya") || 
-         msg.text.includes("Let's Move back to Please Upload Mulkiya") || msg.text.includes("Thank you for uploading the document. Now, let's move on to: Please Upload Mulkiya") )
-      );
-      
-      const mulkiyaCompleted = messages.some(msg =>
-        msg.sender === "bot" &&
-        msg.text.includes("Thank you for uploading the Mulkiya")
-      );
-      
-      // Determine appropriate endpoint
-      if (licenseRequested && !licenseCompleted) {
-        return "/extract-licence/";
-      } else if (mulkiyaRequested && !mulkiyaCompleted) {
-        return "/extract-mulkiya/";  // Fixed endpoint name
-      } else {
-          return "/extract-emirate/"
-      }
+   // Helper to determine the correct endpoint based on conversation state
+function determineEndpoint(fileToUpload) {
+  // Get the last bot message to determine what was most recently requested
+  const recentMessages = [...messages].reverse();
+  const lastBotMessage = recentMessages.find(msg => msg.sender === "bot");
+  
+  // First, check if we have a direct match from the most recent bot message
+  if (lastBotMessage) {
+
+    if (
+      lastBotMessage.text.includes("Please Upload Front Page of Your Document")
+    ){
+      return "/extract-front-page-emirate/";
+    }
+    // Check for driving license request in the most recent message
+    if (
+      lastBotMessage.text.includes("Please Upload Your Driving license") ||
+      lastBotMessage.text.includes("Let's move back to Please Upload Your Driving license") ||
+      lastBotMessage.text.includes("Thank you, Please upload your driving license")
+    ) {
+      return "/extract-licence/";
     }
     
-    // Helper to update messages based on document type
-    function updateMessageForDocumentType(endpoint) {
-      let confirmationMessage = "Thank you for uploading the document.";
-      
-      if (endpoint === "/extract-licence/") {
-        confirmationMessage = "Thank you for uploading the Driving license";
-      } else if (endpoint === "/extract-mulkiya/") {  // Fixed endpoint name to match determineEndpoint
-        confirmationMessage = "Thank you for uploading the Mulkiya";
-      }
-      
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: "bot",
-          text: confirmationMessage,
-          time: getCurrentTime(),
-        },
-      ]);
+    // Check for mulkiya request in the most recent message
+    if (
+      lastBotMessage.text.includes("Please Upload Mulkiya") ||
+      lastBotMessage.text.includes("Let's Move back to Please Upload Mulkiya") ||
+      lastBotMessage.text.includes("move on to: Please Upload Mulkiya")
+    ) {
+      return "/extract-mulkiya/";
     }
+    
+    // Check for back page request in the most recent message
+    if (
+      lastBotMessage.text.includes("Please Upload Back Page of Your Document")
+    ) {
+      return "/extract-back-page-emirate/";
+    }
+  }
+
+  const frontPageRequested = messages.some(msg =>
+    msg.sender === "bot" &&
+    msg.text.includes("Please Upload Front Page of Your Document")
+  );
+  const frontPageCompleted = messages.some(msg =>
+    msg.sender === "bot" &&
+    msg.text.includes("Thank you for uploading the Front Page")
+  );
+  
+  // If no direct match from the most recent message, fall back to the previous logic
+  // Check document request status in conversation history
+  const licenseRequested = messages.some(msg => 
+    msg.sender === "bot" &&
+    (
+      msg.text.includes("Please Upload Your Driving license") || 
+      msg.text.includes("Let's move back to Please Upload Your Driving license") || 
+      msg.text.includes("Thank you, Please upload your driving license")
+    )
+  );
+  
+  const licenseCompleted = messages.some(msg =>
+    msg.sender === "bot" &&
+    msg.text.includes("Thank you for uploading the Driving license")
+  );
+  
+  const mulkiyaRequested = messages.some(msg =>
+    msg.sender === "bot" &&
+    (
+      msg.text.includes("Please Upload Mulkiya") || 
+      msg.text.includes("Let's Move back to Please Upload Mulkiya") || 
+      msg.text.includes("move on to: Please Upload Mulkiya")
+    )
+  );
+  
+  const mulkiyaCompleted = messages.some(msg =>
+    msg.sender === "bot" &&
+    msg.text.includes("Thank you for uploading the Mulkiya")
+  );
+
+  const emirateBackPageRequested = messages.some(msg => 
+    msg.sender === "bot" &&
+    msg.text.includes("Please Upload Back Page of Your Document")
+  );
+  
+  const emirateBackPageCompleted = messages.some(msg =>
+    msg.sender === "bot" &&
+    msg.text.includes("Thank you for uploading the Back Page")
+  );
+  
+  // Determine appropriate endpoint based on conversation flow
+  if(frontPageRequested && frontPageCompleted){
+    return "/extract-front-page-emirate/"
+  }
+  else if (licenseRequested && !licenseCompleted) {
+    return "/extract-licence/";
+  } else if (mulkiyaRequested && !mulkiyaCompleted) {
+    return "/extract-mulkiya/";
+  } else if (emirateBackPageRequested && !emirateBackPageCompleted) {
+    return "/extract-back-page-emirate/";
+  } else {
+    // Default to emirates ID extraction if no specific document is requested
+    return "/extract-emirate/";
+  }
+}
+
+// Helper to update messages based on document type
+function updateMessageForDocumentType(endpoint) {
+  let confirmationMessage = "Thank you for uploading the document.";
+  let nextStep = "";
+  
+  // Determine confirmation message based on the endpoint
+  if (endpoint === "/extract-front-page-emirate/") {
+    confirmationMessage = "Thank you for uploading the Front Page";
+    
+  } else {
+    // For Emirates ID front page, check if we need to request the back page
+    const frontPageRequested = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Please Upload Front Page of Your Document")
+    );
+    
+    const frontPageCompleted = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Thank you for uploading the Front Page")
+    );
+    
+    const licenseRequested = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Please Upload Your Driving license")
+    );
+    
+    const licenseCompleted = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Thank you for uploading the Driving license")
+    );
+    
+    if (!licenseRequested && !licenseCompleted) {
+      nextStep = " Now, let's move on to: Please Upload Your Driving license";
+    } else if (!frontPageRequested && !frontPageCompleted) {
+      nextStep = " Now, let's move on to: Please Upload front Page of Your Document";
+    }
+  }
+  if (endpoint === "/extract-licence/") {
+    confirmationMessage = "Thank you for uploading the Driving license";
+    
+    // Check if mulkiya is the next required document
+    const mulkiyaRequested = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Please Upload Mulkiya")
+    );
+    
+    const mulkiyaCompleted = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Thank you for uploading the Mulkiya")
+    );
+    
+    if (!mulkiyaRequested && !mulkiyaCompleted) {
+      nextStep = " Now, let's move on to: Please Upload Mulkiya";
+    }
+  } else if (endpoint === "/extract-mulkiya/") {
+    confirmationMessage = "Thank you for uploading the Mulkiya";
+    
+    // Check if back page is the next required document
+    const backPageRequested = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Please Upload Back Page of Your Document")
+    );
+    
+    const backPageCompleted = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Thank you for uploading the Back Page")
+    );
+    
+    if (!backPageRequested && !backPageCompleted) {
+      nextStep = " Now, let's move on to: Please Upload Back Page of Your Document";
+    }
+  } else if (endpoint === "/extract-back-page-emirate/") {
+    confirmationMessage = "Thank you for uploading the Back Page";
+    
+    // Add any final step or completion message here if needed
+    nextStep = " Your document processing is now complete.";
+  } else {
+    // For Emirates ID front page, check if we need to request the back page
+    const backPageRequested = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Please Upload Back Page of Your Document")
+    );
+    
+    const backPageCompleted = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Thank you for uploading the Back Page")
+    );
+    
+    const licenseRequested = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Please Upload Your Driving license")
+    );
+    
+    const licenseCompleted = messages.some(msg =>
+      msg.sender === "bot" &&
+      msg.text.includes("Thank you for uploading the Driving license")
+    );
+    
+    if (!licenseRequested && !licenseCompleted) {
+      nextStep = " Now, let's move on to: Please Upload Your Driving license";
+    } else if (!backPageRequested && !backPageCompleted) {
+      nextStep = " Now, let's move on to: Please Upload Back Page of Your Document";
+    }
+  }
+  
+  // Update conversation with confirmation and next step
+  setMessages((prev) => [
+    ...prev,
+    {
+      sender: "bot",
+      text: confirmationMessage + nextStep,
+      time: getCurrentTime(),
+    },
+  ]);
+}
   };
 
   const handleSaveField = (field, newValue) => {

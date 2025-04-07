@@ -5,6 +5,7 @@ import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
 import MessageContentRenderer from "./DocumentImage";
 import DocumentAnalysisLoading from "./DocumentAnalysisLoading";
 import CustomDropdown from "./CustomDropdown";
+import ReviewLinkCard from "./ReviewLinkCard";
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -625,6 +626,20 @@ function updateMessageForDocumentType(endpoint) {
           time: getCurrentTime(),
         });
       }
+      if (response.data.review_message){
+        botResponses.push({
+          sender: "bot",
+          text: response.data.review_message,
+          time: getCurrentTime(),
+        });
+      }
+      if(response.data.review_link){
+        botResponses.push({
+          sender: "bot",
+          text: response.data.review_link,
+          time: getCurrentTime(),
+        });
+      }
       if (response.data.dropdown) {
         if (Array.isArray(response.data.dropdown.options)) {
           setDropdownOptions(response.data.dropdown.options);
@@ -912,27 +927,32 @@ function updateMessageForDocumentType(endpoint) {
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-            {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`mb-3 ${
-                  msg.sender === "bot" ? "text-left" : "text-right"
-                }`}
-              >
-                <span
-                  className={`relative inline-block px-4 py-6 rounded-lg ${
-                    msg.sender === "bot"
-                      ? "bg-botBackgroundColor text-black border border-black-500"
-                      : "bg-sendColor text-black"
-                  }`}
-                  style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
-                >
-                  <MessageContentRenderer msg={msg} baseURL={baseURL} />
+  {messages.map((msg, index) => (
+    <div
+      key={index}
+      className={`mb-3 ${
+        msg.sender === "bot" ? "text-left" : "text-right"
+      }`}
+    >
+      {/* Check if the message is a review link */}
+      {msg.sender === "bot" && msg.text.includes("review") && msg.text.startsWith("http") ? (
+        <ReviewLinkCard url={msg.text} />
+      ) : (
+        <span
+          className={`relative inline-block px-4 py-6 rounded-lg ${
+            msg.sender === "bot"
+              ? "bg-botBackgroundColor text-black border border-black-500"
+              : "bg-sendColor text-black"
+          }`}
+          style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
+        >
+          <MessageContentRenderer msg={msg} baseURL={baseURL} />
 
-                  <span className="absolute bottom-1 right-2 text-sm text-gray-500">
-                    {msg.time}
-                  </span>
-                </span>
+          <span className="absolute bottom-1 right-2 text-sm text-gray-500">
+            {msg.time}
+          </span>
+        </span>
+      )}
               </div>
             ))}
             {analysisStage && <DocumentAnalysisLoading stage={analysisStage} />}

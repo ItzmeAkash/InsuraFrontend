@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import axiosInstance, { baseURL } from "../../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
-import MessageContentRenderer from "../DocumentImage";
-import DocumentAnalysisLoading from "../DocumentAnalysisLoading";
-import CustomDropdown from "../CustomDropdown";
+import MessageContentRenderer from "../Common/DocumentImage";
+import DocumentAnalysisLoading from "../Common/DocumentAnalysisLoading";
+import CustomDropdown from "../Common/CustomDropdown";
 
 const WhatAppChatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -57,41 +57,48 @@ const WhatAppChatbot = () => {
   const handleFileAttach = async (e) => {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
-    
+
     try {
       setFile(uploadedFile);
       setLoading(true);
       setAnalysisStage("uploading");
-      
+
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("user_id", userId);
-      
+
       // Debug log
       console.log("FormData contents:", ...formData);
-      
+
       // Determine the appropriate endpoint based on file type and context
       let endpoint;
-      
+
       // Check if this is a driving license upload request
-      const isDrivingLicense = messages.some(msg => 
-        msg.sender === "bot" && 
-        msg.text.includes("Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license") ||
-        msg.text.includes("Let's Move back to Please Upload Your Driving license")
+      const isDrivingLicense = messages.some(
+        (msg) =>
+          (msg.sender === "bot" &&
+            msg.text.includes(
+              "Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license"
+            )) ||
+          msg.text.includes(
+            "Let's Move back to Please Upload Your Driving license"
+          )
       );
-      
+
       if (isDrivingLicense) {
         // Use license-specific endpoints
-        endpoint = uploadedFile.type === "application/pdf" 
-          ? "/extract-pdf-licence/" 
-          : "/extract-image-licence/";
+        endpoint =
+          uploadedFile.type === "application/pdf"
+            ? "/extract-pdf-licence/"
+            : "/extract-image-licence/";
       } else {
         // Use standard document endpoints
-        endpoint = uploadedFile.type === "application/pdf" 
-          ? "/extract-pdf/" 
-          : "/extract-image/";
+        endpoint =
+          uploadedFile.type === "application/pdf"
+            ? "/extract-pdf/"
+            : "/extract-image/";
       }
-      
+
       // Make API call
       const response = await axiosInstance.post(endpoint, formData, {
         headers: {
@@ -100,23 +107,22 @@ const WhatAppChatbot = () => {
         timeout: 30000, // 30 seconds
         retries: 3,
       });
-      
+
       setAnalysisStage("complete");
       console.log("Extracted Information:", response.data);
       setExtractedInfo(response.data);
-      
     } catch (error) {
       console.error("Error details:", {
         message: error.message,
         response: error.response,
         request: error.request,
       });
-      
+
       setAnalysisStage(null);
       const errorMessage =
         error.response?.data?.message ||
         "Sorry, I couldn't process your document. Please try again.";
-        
+
       setMessages((prev) => [
         ...prev,
         {
@@ -125,7 +131,6 @@ const WhatAppChatbot = () => {
           time: getCurrentTime(),
         },
       ]);
-      
     } finally {
       setLoading(false);
       e.target.value = null;

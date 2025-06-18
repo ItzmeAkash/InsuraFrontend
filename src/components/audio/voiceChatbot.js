@@ -1,13 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
-import axiosInstance, { baseURL } from "../axiosInstance";
-import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
+import axiosInstance, { baseURL } from "../../axiosInstance";
+import {
+  AiOutlinePaperClip,
+  AiOutlineClose,
+  AiOutlineAudio,
+  AiOutlineSend,
+} from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
-import MessageContentRenderer from "./Common/DocumentImage";
-import DocumentAnalysisLoading from "./Common/DocumentAnalysisLoading";
-import CustomDropdown from "./Common/CustomDropdown";
-import ReviewLinkCard from "./Common/ReviewLinkCard";
+import MessageContentRenderer from "../Common/DocumentImage";
+import DocumentAnalysisLoading from "../Common/DocumentAnalysisLoading";
+import CustomDropdown from "../Common/CustomDropdown";
+import ReviewLinkCard from "../Common/ReviewLinkCard";
+import WhatsAppAudioPlayer from "./WhatsAppAudioPlayer";
+import VoiceRecorder from "./VoiceRecorder";
 
-const Chatbot = () => {
+const VoiceChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -26,6 +33,13 @@ const Chatbot = () => {
   const [dropdownOptions, setDropdownOptions] = useState([]);
   const [dropdownPlaceholder, setDropdownPlaceholder] =
     useState("Select an option");
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [transcript, setTranscript] = useState("");
+  const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -58,12 +72,12 @@ const Chatbot = () => {
   const handleFileAttach = async (e) => {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
-  
+
     try {
       setFile(uploadedFile);
-      setLoading(true);
+      setUploadLoading(true);
       setAnalysisStage("uploading");
-  
+
       // Handle multiple files if selected
       if (e.target.files.length > 1) {
         const canvas = document.createElement("canvas");
@@ -78,23 +92,23 @@ const Chatbot = () => {
             });
           })
         );
-  
+
         const totalWidth = images.reduce((sum, img) => sum + img.width, 0);
         const maxHeight = Math.max(...images.map((img) => img.height));
         canvas.width = totalWidth;
         canvas.height = maxHeight;
-  
+
         let xOffset = 0;
         images.forEach((img) => {
           ctx.drawImage(img, xOffset, 0);
           xOffset += img.width;
         });
-  
+
         canvas.toBlob(async (blob) => {
           const combinedFile = new File([blob], "combined.png", {
             type: "image/png",
           });
-  
+
           // Use the combined file instead of the original
           await uploadFile(combinedFile);
         }, "image/png");
@@ -120,26 +134,26 @@ const Chatbot = () => {
           time: getCurrentTime(),
         },
       ]);
-  
+
       // Hide error stage after 1.5 seconds
       setTimeout(() => setAnalysisStage(null), 1500);
     } finally {
-      setLoading(false);
+      setUploadLoading(false);
       e.target.value = null;
     }
-  
+
     // Helper function to upload the file
     async function uploadFile(fileToUpload) {
       const formData = new FormData();
       formData.append("file", fileToUpload);
       formData.append("user_id", userId);
-  
+
       // Debug log
       console.log("FormData contents:", ...formData);
-  
+
       // Determine document type and appropriate endpoint
       const endpoint = determineEndpoint(fileToUpload);
-  
+
       // Make API call
       const response = await axiosInstance.post(endpoint, formData, {
         headers: {
@@ -147,24 +161,29 @@ const Chatbot = () => {
         },
         retries: 3,
       });
-  
+
       // Set analysis stage to complete - this will show "Analysis complete!" to the user
       setAnalysisStage("complete");
       console.log("Extracted Information:", response.data);
       setExtractedInfo(response.data);
-  
-      // Hide analysis stage after 0.5 seconds
+
+      // Add a slight delay before showing the confirmation message
+      // This ensures the user sees the "Analysis complete!" notification
       setTimeout(() => {
+        // Hide analysis stage
         setAnalysisStage(null);
+
+        // Update messages based on document type
+        updateMessageForDocumentType(endpoint);
       }, 500);
     }
-  
+
     // Helper to determine the correct endpoint based on conversation state
     function determineEndpoint(fileToUpload) {
       // Get the last bot message to determine what was most recently requested
       const recentMessages = [...messages].reverse();
       const lastBotMessage = recentMessages.find((msg) => msg.sender === "bot");
-  
+
       // First, check if we have a direct match from the most recent bot message
       if (lastBotMessage) {
         if (
@@ -186,7 +205,7 @@ const Chatbot = () => {
         ) {
           return "/extract-licence/";
         }
-  
+
         // Check for mulkiya request in the most recent message
         if (
           lastBotMessage.text.includes("Please Upload Mulkiya") ||
@@ -197,7 +216,7 @@ const Chatbot = () => {
         ) {
           return "/extract-mulkiya/";
         }
-  
+
         // Check for back page request in the most recent message
         if (
           lastBotMessage.text.includes(
@@ -207,7 +226,7 @@ const Chatbot = () => {
           return "/extract-back-page-emirate/";
         }
       }
-  
+
       const frontPageRequested = messages.some(
         (msg) =>
           msg.sender === "bot" &&
@@ -218,7 +237,7 @@ const Chatbot = () => {
           msg.sender === "bot" &&
           msg.text.includes("Thank you for uploading the Front Page")
       );
-  
+
       // If no direct match from the most recent message, fall back to the previous logic
       // Check document request status in conversation history
       const licenseRequested = messages.some(
@@ -230,13 +249,13 @@ const Chatbot = () => {
             ) ||
             msg.text.includes("Thank you, Please upload your driving license"))
       );
-  
+
       const licenseCompleted = messages.some(
         (msg) =>
           msg.sender === "bot" &&
           msg.text.includes("Thank you for uploading the Driving license")
       );
-  
+
       const mulkiyaRequested = messages.some(
         (msg) =>
           msg.sender === "bot" &&
@@ -244,27 +263,27 @@ const Chatbot = () => {
             msg.text.includes("Let's Move back to Please Upload Mulkiya") ||
             msg.text.includes("move on to: Please Upload Mulkiya"))
       );
-  
+
       const mulkiyaCompleted = messages.some(
         (msg) =>
           msg.sender === "bot" &&
           msg.text.includes("Thank you for uploading the Mulkiya")
       );
-  
+
       const emirateBackPageRequested = messages.some(
         (msg) =>
           msg.sender === "bot" &&
           msg.text.includes("Please Upload Back Page of Your Document")
       );
-  
+
       const emirateBackPageCompleted = messages.some(
         (msg) =>
           msg.sender === "bot" &&
           msg.text.includes("Thank you for uploading the Back Page")
       );
-  
+
       // Determine appropriate endpoint based on conversation flow
-      if (frontPageRequested && frontPageCompleted) {
+      if (frontPageRequested && !frontPageCompleted) {
         return "/extract-front-page-emirate/";
       } else if (licenseRequested && !licenseCompleted) {
         return "/extract-licence/";
@@ -567,41 +586,100 @@ const Chatbot = () => {
       return input ? input.trim() : "";
     };
 
+    // If no input, no extracted data, no document completion, no dropdown selection, and no recorded audio, return early
+    if (
+      !extractedData &&
+      !isDocumentCompleted &&
+      !dropdownSelection &&
+      !input?.trim() &&
+      !recordedAudio
+    ) {
+      return;
+    }
+
     try {
-      const messageText = isDocumentCompleted
-        ? "Download completed"
-        : dropdownSelection
-        ? dropdownSelection
-        : formatMessageText(extractedData, input);
-      if (!messageText) return;
+      let messageText;
+      let userMessage;
+      let displayMessageText;
 
-      const userMessage = {
-        sender: "user",
-        text: messageText,
-        time: getCurrentTime(),
-      };
-
-      const displayMessageText = extractedData
-        ? "Document Upload successfully"
-        : messageText;
-
-      setMessages((prev) => [
-        ...prev,
-        {
+      // Handle voice message
+      if (recordedAudio) {
+        displayMessageText = "Voice Message";
+        userMessage = {
           sender: "user",
           text: displayMessageText,
           time: getCurrentTime(),
-        },
-      ]);
+          audio: URL.createObjectURL(recordedAudio),
+          audioDuration: `${Math.floor(recordingTime / 60)}:${String(
+            recordingTime % 60
+          ).padStart(2, "0")}`,
+        };
+
+        // Handle audio transcription
+        const formData = new FormData();
+        formData.append(
+          "file",
+          recordedAudio,
+          `voice_message.${mediaRecorder.mimeType.split("/")[1]}`
+        );
+        try {
+          const response = await axiosInstance.post("/transcribe/", formData);
+          if (response.data.transcript) {
+            messageText = response.data.transcript.trim();
+            setTranscript(messageText);
+          } else {
+            throw new Error("No transcript received");
+          }
+        } catch (transcriptError) {
+          console.error("Transcription error:", transcriptError);
+          setMessages((prev) => [
+            ...prev,
+            {
+              sender: "bot",
+              text: "Failed to transcribe audio. Please try again.",
+              time: getCurrentTime(),
+            },
+          ]);
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Handle text message, extracted data, document completion, or dropdown
+        messageText = isDocumentCompleted
+          ? "Download completed"
+          : dropdownSelection
+          ? dropdownSelection
+          : formatMessageText(extractedData, input);
+        if (!messageText) return;
+
+        displayMessageText = extractedData
+          ? "Document Upload successfully"
+          : messageText;
+
+        userMessage = {
+          sender: "user",
+          text: displayMessageText,
+          time: getCurrentTime(),
+        };
+      }
+
+      setMessages((prev) => [...prev, userMessage]);
 
       if (!extractedData && !isDocumentCompleted) {
         setInput("");
       }
 
+      // Reset voice/audio related states
+      if (recordedAudio) {
+        setRecordedAudio(null);
+        setRecordingTime(0);
+        setTranscript("");
+      }
+
       if (awaitingName) {
         setUserId(messageText);
         setAwaitingName(false);
-        sendInitialTrigger(messageText);
+        await sendInitialTrigger(messageText);
         return;
       }
 
@@ -649,6 +727,7 @@ const Chatbot = () => {
           time: getCurrentTime(),
         });
       }
+
       if (response.data.review_message) {
         botResponses.push({
           sender: "bot",
@@ -656,6 +735,7 @@ const Chatbot = () => {
           time: getCurrentTime(),
         });
       }
+
       if (response.data.review_link) {
         botResponses.push({
           sender: "bot",
@@ -663,6 +743,7 @@ const Chatbot = () => {
           time: getCurrentTime(),
         });
       }
+
       if (response.data.dropdown) {
         if (Array.isArray(response.data.dropdown.options)) {
           setDropdownOptions(response.data.dropdown.options);
@@ -696,8 +777,6 @@ const Chatbot = () => {
           ? response.data.document_options
           : []
       );
-
-      console.log(documentOptions);
 
       if (extractedData) {
         setExtractedInfo(null);
@@ -828,6 +907,253 @@ const Chatbot = () => {
 
   const handleFileRemove = () => {
     setFile(null);
+  };
+
+  const getSupportedMimeType = () => {
+    const mimeTypes = ["audio/ogg", "audio/webm", "audio/mp4", "audio/aac"];
+    for (const mimeType of mimeTypes) {
+      if (MediaRecorder.isTypeSupported(mimeType)) {
+        return mimeType;
+      }
+    }
+    return null;
+  };
+
+  const startRecording = async () => {
+    try {
+      if (!window.isSecureContext) {
+        throw new Error("SecureContextError");
+      }
+
+      if (!window.MediaRecorder) {
+        throw new Error("MediaRecorderNotSupported");
+      }
+
+      const mimeType = getSupportedMimeType();
+      if (!mimeType) {
+        throw new Error("NoSupportedMimeType");
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      setRecordingTime(0);
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      let errorMessage = "Failed to access microphone. Please try again.";
+
+      if (error.name === "NotAllowedError") {
+        errorMessage =
+          "Microphone access denied. Please allow microphone access in your browser settings.";
+      } else if (error.name === "NotFoundError") {
+        errorMessage =
+          "No microphone found. Please ensure a microphone is connected.";
+      } else if (error.message === "SecureContextError") {
+        errorMessage =
+          "Microphone access requires a secure connection (HTTPS). Please access this site over HTTPS.";
+      } else if (error.message === "MediaRecorderNotSupported") {
+        errorMessage =
+          "Your browser does not support audio recording. Please use a modern browser like Chrome or Firefox.";
+      } else if (error.message === "NoSupportedMimeType") {
+        errorMessage =
+          "Your browser does not support any compatible audio formats for recording.";
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: errorMessage,
+          time: getCurrentTime(),
+        },
+      ]);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.stop();
+      clearInterval(timerRef.current);
+      setIsRecording(false);
+      setOptions([]); // Hide options when voice message is sent
+
+      mediaRecorder.onstop = async () => {
+        const mimeType = mediaRecorder.mimeType;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (audioBlob.size === 0 || recordingTime < 1) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              sender: "bot",
+              text: "No audio recorded. Please try again.",
+              time: getCurrentTime(),
+            },
+          ]);
+          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+          setRecordingTime(0);
+          setRecordedAudio(null);
+          setTranscript("");
+          return;
+        }
+        setRecordedAudio(audioBlob);
+        setRecordingTime(recordingTime); // Ensure recordingTime is preserved
+        mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+
+        // Call handleSendMessage to process the audio
+        await handleSendMessage();
+
+        const audio = new Audio(URL.createObjectURL(audioBlob));
+        let audioDuration = "0:00";
+
+        audio.addEventListener("loadedmetadata", () => {
+          const minutes = Math.floor(audio.duration / 60);
+          const seconds = Math.floor(audio.duration % 60);
+          audioDuration = `${minutes}:${
+            seconds < 10 ? "0" + seconds : seconds
+          }`;
+        });
+
+        // Immediately add the voice message to the chat
+        const userMessage = {
+          sender: "user",
+          text: "Voice Message",
+          time: getCurrentTime(),
+          audio: URL.createObjectURL(audioBlob),
+          audioDuration: audioDuration,
+        };
+        setMessages((prev) => [...prev, userMessage]);
+        setRecordedAudio(audioBlob); // Store the audio blob for processing
+        setLoading(true); // Show loading indicator
+
+        const formData = new FormData();
+        formData.append(
+          "file",
+          audioBlob,
+          `voice_message.${mimeType.split("/")[1]}`
+        );
+
+        try {
+          // Step 1: Transcribe the audio
+          const transcriptResponse = await axiosInstance.post(
+            "/transcribe/",
+            formData
+          );
+
+          if (!transcriptResponse.data.transcript) {
+            throw new Error("No transcript received from server");
+          }
+
+          const transcribedText = transcriptResponse.data.transcript.trim();
+          setTranscript(transcribedText);
+
+          // Log the transcribed text for debugging
+          console.log("Transcribed Text:", transcribedText);
+
+          // Validate the transcribed text (basic check for name-like input)
+          if (!transcribedText || transcribedText.length < 2) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: "bot",
+                text: "I couldn't understand your name. Could you please repeat it clearly?",
+                time: getCurrentTime(),
+              },
+            ]);
+            mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+            setLoading(false);
+            return;
+          }
+
+          // Step 2: Send transcript to chat API
+          if (awaitingName) {
+            setUserId(transcribedText);
+            setAwaitingName(false);
+            await sendInitialTrigger(transcribedText);
+          } else {
+            const chatResponse = await axiosInstance.post("/chat/", {
+              message: transcribedText,
+              user_id: userId,
+            });
+
+            // Log the backend response for debugging
+            console.log("Backend Response:", chatResponse.data);
+
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: "bot",
+                text: chatResponse.data.response,
+                time: getCurrentTime(),
+              },
+              ...(chatResponse.data.question
+                ? [
+                    {
+                      sender: "bot",
+                      text: chatResponse.data.question,
+                      time: getCurrentTime(),
+                    },
+                  ]
+                : []),
+              ...(chatResponse.data.example
+                ? [
+                    {
+                      sender: "bot",
+                      text: chatResponse.data.example,
+                      time: getCurrentTime(),
+                    },
+                  ]
+                : []),
+            ]);
+
+            setOptions(
+              chatResponse.data.options
+                ? chatResponse.data.options.split(", ")
+                : []
+            );
+          }
+        } catch (error) {
+          console.error("Processing voice message error:", error);
+          setMessages((prev) => [
+            ...prev,
+            {
+              sender: "bot",
+              text: "Failed to process voice message. Please try again in a quieter environment or type your message.",
+              time: getCurrentTime(),
+            },
+          ]);
+        } finally {
+          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+          setLoading(false);
+          setRecordedAudio(null);
+          setTranscript("");
+        }
+      };
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.stop();
+      clearInterval(timerRef.current);
+      setIsRecording(false);
+      setRecordingTime(0);
+      setRecordedAudio(null);
+      setTranscript("");
+      mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+    }
   };
 
   const ExtractedField = ({ field, value: initialValue, onSave }) => {
@@ -971,11 +1297,28 @@ const Chatbot = () => {
                     }`}
                     style={{ minHeight: "2.5rem", minWidth: "4.7rem" }}
                   >
-                    <MessageContentRenderer msg={msg} baseURL={baseURL} />
-
-                    <span className="absolute bottom-1 right-2 text-sm text-gray-500">
-                      {msg.time}
-                    </span>
+                    {msg.audio ? (
+                      <div className="flex flex-col w-full relative">
+                        <div className="flex items-center">
+                          <WhatsAppAudioPlayer audioSrc={msg.audio} />
+                        </div>
+                        {/* {msg.audioDuration && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {msg.audioDuration}
+                          </div>
+                        )} */}
+                        <span className="absolute bottom-1 right-2 text-sm text-gray-500">
+                          {msg.time}
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <MessageContentRenderer msg={msg} baseURL={baseURL} />
+                        <span className="absolute bottom-1 right-2 text-sm text-gray-500">
+                          {msg.time}
+                        </span>
+                      </>
+                    )}
                   </span>
                 )}
               </div>
@@ -1034,6 +1377,7 @@ const Chatbot = () => {
                   }
                 }}
                 className="block w-full bg-gray-200 text-black text-sm py-2 px-4 rounded-lg mb-2 hover:bg-gray-300 transition"
+                disabled={isRecording || loading} // Disable options during recording or loading
               >
                 {option}
               </button>
@@ -1045,6 +1389,7 @@ const Chatbot = () => {
                   onSelect={handleDropdownSelect}
                   placeholder={dropdownPlaceholder}
                   className="w-full"
+                  disabled={isRecording || loading} // Disable dropdown during recording or loading
                 />
               </div>
             )}
@@ -1068,12 +1413,13 @@ const Chatbot = () => {
             )}
 
             {/* {file && (
-              <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg">
+              <div className="flex items-center justify-between bg-gray-100 p-2 rounded-lg mx-2">
                 <span className="text-gray-700 text-sm">{file.name}</span>
                 <div className="flex space-x-2">
                   <button
                     className="text-blue-500 text-sm underline hover:text-blue-700"
                     onClick={handleFileLocate}
+                    disabled={isRecording || loading} // Disable file locate during recording or loading
                   >
                     View
                   </button>
@@ -1085,7 +1431,7 @@ const Chatbot = () => {
               </div>
             )} */}
 
-            <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full">
+            <div className="border-t border-gray-300 mt-2 pt-4 flex items-center w-full px-2">
               <label className="mr-2 cursor-pointer">
                 <input
                   type="file"
@@ -1093,37 +1439,72 @@ const Chatbot = () => {
                   onChange={handleFileAttach}
                   accept="image/*,.pdf,.doc,.docx"
                   multiple
+                  disabled={isRecording || loading || uploadLoading} // Disable file input during recording or loading
                 />
                 <AiOutlinePaperClip
-                  className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${
-                    uploadLoading ? "opacity-50 cursor-not-allowed" : ""
+                  className={`pl-2 h-8 w-8 ${
+                    isRecording || loading || uploadLoading
+                      ? "text-gray-300 cursor-not-allowed"
+                      : "text-gray-500 hover:text-black"
                   }`}
                 />
               </label>
 
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
-                className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSendMessage();
-                  }
-                }}
-              />
-              <button
-                onClick={() => handleSendMessage()}
-                className={`ml-2 px-4 py-3 mr-3 bg-sendColor text-black rounded-lg hover:bg-sendColor transition ${
-                  uploadLoading || loading
-                    ? "opacity-50 cursor-not-allowed"
-                    : ""
-                }`}
-                disabled={uploadLoading || loading}
-              >
-                Send
-              </button>
+              {isRecording ? (
+                <VoiceRecorder
+                  recordingTime={recordingTime}
+                  cancelRecording={cancelRecording}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Type your message..."
+                  className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      !isRecording &&
+                      !loading &&
+                      !uploadLoading
+                    ) {
+                      handleSendMessage();
+                    }
+                  }}
+                  disabled={isRecording || loading || uploadLoading} // Disable input during recording or loading
+                />
+              )}
+
+              <div className="ml-2 mr-2">
+                {input.trim() ? (
+                  <button
+                    onClick={() => handleSendMessage()}
+                    className={`p-2 rounded-full ${
+                      isRecording || loading || uploadLoading
+                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                        : "bg-sendColor text-black hover:bg-sendColor/90"
+                    } transition`}
+                    disabled={isRecording || loading || uploadLoading} // Disable send button during recording or loading
+                  >
+                    <AiOutlineSend className="h-6 w-6" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`p-2 rounded-full ${
+                      isRecording
+                        ? "bg-red-500 text-white hover:bg-red-600"
+                        : loading || uploadLoading
+                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                        : "bg-gray-200 text-black hover:bg-gray-300"
+                    } transition`}
+                    disabled={loading || uploadLoading} // Disable voice button during loading
+                  >
+                    <AiOutlineAudio className="h-6 w-6" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1132,4 +1513,4 @@ const Chatbot = () => {
   );
 };
 
-export default Chatbot;
+export default VoiceChatbot;

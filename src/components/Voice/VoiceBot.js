@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import axiosInstance, { baseURL } from "../../axiosInstance";
 import { AiOutlinePaperClip, AiOutlineClose } from "react-icons/ai";
 import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
-import MessageContentRenderer from '../DocumentImage';
-import DocumentAnalysisLoading from "../DocumentAnalysisLoading";
-import CustomDropdown from "../CustomDropdown";
+import MessageContentRenderer from "../Common/DocumentImage";
+import DocumentAnalysisLoading from "../Common/DocumentAnalysisLoading";
+import CustomDropdown from "../Common/CustomDropdown";
 
 const VoiceBot = () => {
   const [messages, setMessages] = useState([]);
@@ -23,7 +23,8 @@ const VoiceBot = () => {
   const [file, setFile] = useState(null);
   const [analysisStage, setAnalysisStage] = useState(null);
   const [dropdownOptions, setDropdownOptions] = useState([]);
-  const [dropdownPlaceholder, setDropdownPlaceholder] = useState("Select an option");
+  const [dropdownPlaceholder, setDropdownPlaceholder] =
+    useState("Select an option");
   const audioRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -34,12 +35,12 @@ const VoiceBot = () => {
     if (isChatOpen) scrollToBottom();
   }, [messages, isChatOpen, loading]);
 
-  useEffect(()=>{
-    if(loading){
-      setOptions([])
-      setDocumentOptions([])
+  useEffect(() => {
+    if (loading) {
+      setOptions([]);
+      setDocumentOptions([]);
     }
-  },[loading])
+  }, [loading]);
 
   const formatExtractedInfoAsText = (info) => {
     if (!info) return "";
@@ -59,35 +60,35 @@ const VoiceBot = () => {
     const uploadedFile = e.target.files[0];
     if (uploadedFile) {
       setLoading(true);
-      setAnalysisStage('uploading');
-  
+      setAnalysisStage("uploading");
+
       const formData = new FormData();
       formData.append("file", uploadedFile);
       formData.append("user_id", userId);
-  
+
       try {
         // Show different stages with delays
-        setTimeout(() => setAnalysisStage('analyzing'), 1000);
-        setTimeout(() => setAnalysisStage('extracting'), 2500);
-  
+        setTimeout(() => setAnalysisStage("analyzing"), 1000);
+        setTimeout(() => setAnalysisStage("extracting"), 2500);
+
         let response;
         if (uploadedFile.type === "application/pdf") {
-        response = await axiosInstance.post("/extract-pdf/", formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        });
-      } else {
-        response = await axiosInstance.post("/extract-image/", formData, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        });
-      }
-  
-        setAnalysisStage('complete');
+          response = await axiosInstance.post("/extract-pdf/", formData, {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          });
+        } else {
+          response = await axiosInstance.post("/extract-image/", formData, {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          });
+        }
+
+        setAnalysisStage("complete");
         setTimeout(() => setAnalysisStage(null), 1500); // Clear the stage after showing completion
-  
+
         console.log("Extracted Information:", response.data);
         setExtractedInfo(response.data);
       } catch (error) {
@@ -121,19 +122,22 @@ const VoiceBot = () => {
     });
   };
 
-//   auDUI
-const sendToDeepgram = async (text) => {
-    const deepgramApiKey = 'fb2ee994547c33bf1ce4eb418d61106aa218f30c';
+  //   auDUI
+  const sendToDeepgram = async (text) => {
+    const deepgramApiKey = "cf9d09cfbc149e7f4d5d7176a271979dd63b0684";
     try {
-      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-luna-en', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Token ${deepgramApiKey}`,
-          'Content-Type': 'application/json',
-          'accept': 'text/plain'
-        },
-        body: JSON.stringify({ text: text })
-      });
+      const response = await fetch(
+        "https://api.deepgram.com/v1/speak?model=aura-luna-en",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${deepgramApiKey}`,
+            "Content-Type": "application/json",
+            accept: "text/plain",
+          },
+          body: JSON.stringify({ text: text }),
+        }
+      );
 
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -144,7 +148,7 @@ const sendToDeepgram = async (text) => {
         playNextAudio();
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error("Error:", error);
     }
   };
 
@@ -191,13 +195,13 @@ const sendToDeepgram = async (text) => {
           time: getCurrentTime(),
         },
       ];
-  
+
       // Function to handle displaying and speaking a message
       const displayAndSpeakMessage = async (message) => {
         setMessages((prev) => [...prev, message]);
         await sendToDeepgram(message.text);
       };
-  
+
       // Display and speak the first message, then the second message after the first one finishes
       await displayAndSpeakMessage(botMessages[0]);
       const checkAudioFinishedInterval = setInterval(() => {
@@ -207,7 +211,6 @@ const sendToDeepgram = async (text) => {
           setAwaitingName(true);
         }
       }, 100); // Check every 100ms if the audio has finished
-  
     } catch (error) {
       console.error("Error sending hidden message:", error);
       setMessages((prev) => [
@@ -234,17 +237,25 @@ const sendToDeepgram = async (text) => {
       const botMessages = [
         { sender: "bot", text: response.data.response, time: getCurrentTime() },
         ...(response.data.question
-          ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
+          ? [
+              {
+                sender: "bot",
+                text: response.data.question,
+                time: getCurrentTime(),
+              },
+            ]
           : []),
       ];
       setMessages((prev) => [...prev, ...botMessages]);
-      setOptions(response.data.options ? response.data.options.split(", ") : []);
+      setOptions(
+        response.data.options ? response.data.options.split(", ") : []
+      );
       setDocumentOptions(
         response.data.document_options
           ? response.data.document_options.split(", ")
           : []
       );
-      botMessages.forEach(msg => sendToDeepgram(msg.text));
+      botMessages.forEach((msg) => sendToDeepgram(msg.text));
     } catch (error) {
       console.error("Error triggering initial message:", error);
       setMessages((prev) => [
@@ -258,220 +269,219 @@ const sendToDeepgram = async (text) => {
     }
   };
 
-const handleSendMessage = async (
-  extractedData = null,
-  isDocumentCompleted = false,
-  dropdownSelection = null
-) => {
-  stopAudioPlayback();
-  console.log("handleSendMessage called with:", {
-    extractedData,
-    isDocumentCompleted,
-  });
-
-  const getCurrentTime = () => {
-    return new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
+  const handleSendMessage = async (
+    extractedData = null,
+    isDocumentCompleted = false,
+    dropdownSelection = null
+  ) => {
+    stopAudioPlayback();
+    console.log("handleSendMessage called with:", {
+      extractedData,
+      isDocumentCompleted,
     });
-  };
 
-  const isCircularReference = (obj, seen = new WeakSet()) => {
-    if (obj && typeof obj === "object") {
-      if (seen.has(obj)) {
-        return true;
-      }
-      seen.add(obj);
-      for (const key in obj) {
-        if (isCircularReference(obj[key], seen)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
-
-  const sanitizeData = (value, seen = new WeakSet()) => {
-    if (value === null || typeof value !== "object") {
-      return value;
-    }
-
-    if (Array.isArray(value)) {
-      return value.map((item) => sanitizeData(item, seen));
-    }
-
-    if (
-      value instanceof Element ||
-      value instanceof HTMLElement ||
-      value === window ||
-      value === document ||
-      typeof value === "function" ||
-      isCircularReference(value, seen)
-    ) {
-      return null;
-    }
-
-    const sanitized = {};
-    seen.add(value);
-    for (const [key, val] of Object.entries(value)) {
-      sanitized[key] = sanitizeData(val, seen);
-    }
-    return sanitized;
-  };
-
-  const formatMessageText = (extractedData, input) => {
-    if (extractedData) {
-      return JSON.stringify(sanitizeData(extractedData));
-    }
-    return input ? input.trim() : "";
-  };
-
-  try {
-    const messageText = isDocumentCompleted
-    ? "Download completed"
-    : dropdownSelection 
-      ? dropdownSelection
-      : formatMessageText(extractedData, input);
-    if (!messageText) return;
-
-    // Create user message object for backend processing
-    const userMessage = {
-      sender: "user",
-      text: messageText,
-      time: getCurrentTime(),
+    const getCurrentTime = () => {
+      return new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
     };
 
-    // Display a fixed success message in the UI when extracted data is present
-    const displayMessageText = extractedData
-      ? "Document Upload successfully"
-      : messageText;
-
-    // Set message in state for UI
-    setMessages((prev) => [
-      ...prev,
-      {
-        sender: "user",
-        text: displayMessageText,
-        time: getCurrentTime(),
-      },
-    ]);
-
-    if (!extractedData && !isDocumentCompleted) {
-      setInput("");
-    }
-
-    if (awaitingName) {
-      setUserId(messageText);
-      setAwaitingName(false);
-      sendInitialTrigger(messageText);
-      return;
-    }
-
-    setLoading(true);
-
-    // Add a delay before making the API call if the document is completed
-    if (isDocumentCompleted) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    const response = await axiosInstance.post("/chat/", {
-      message: messageText,
-      user_id: userId,
-      is_extracted_info: Boolean(extractedData),
-    });
-
-    let botResponses = [];
-    if (response.data.response) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.response,
-        time: getCurrentTime(),
-      });
-    }
-
-    if (response.data.link) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.link,
-        time: getCurrentTime(),
-      });
-    }
-
-    if (response.data.question) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.question,
-        time: getCurrentTime(),
-      });
-    }
-
-    if (response.data.example) {
-      botResponses.push({
-        sender: "bot",
-        text: response.data.example,
-        time: getCurrentTime(),
-      });
-    }
-    if (response.data.dropdown) {
-      if (Array.isArray(response.data.dropdown.options)) {
-        setDropdownOptions(response.data.dropdown.options);
-        if (response.data.dropdown.placeholder) {
-          setDropdownPlaceholder(response.data.dropdown.placeholder);
+    const isCircularReference = (obj, seen = new WeakSet()) => {
+      if (obj && typeof obj === "object") {
+        if (seen.has(obj)) {
+          return true;
         }
-      } else if (typeof response.data.dropdown === 'string') {
-        // Handle case where dropdown might be a comma-separated string
-        setDropdownOptions(response.data.dropdown.split(', '));
+        seen.add(obj);
+        for (const key in obj) {
+          if (isCircularReference(obj[key], seen)) {
+            return true;
+          }
+        }
       }
-    } else {
-      setDropdownOptions([]);
-    }
+      return false;
+    };
 
+    const sanitizeData = (value, seen = new WeakSet()) => {
+      if (value === null || typeof value !== "object") {
+        return value;
+      }
 
-    // Check for document_name in the response
-    if (response.data.document_name) {
-      botResponses.push({
-        sender: "bot",
-        text: `Document ${response.data.document_name} is ready.`,
+      if (Array.isArray(value)) {
+        return value.map((item) => sanitizeData(item, seen));
+      }
+
+      if (
+        value instanceof Element ||
+        value instanceof HTMLElement ||
+        value === window ||
+        value === document ||
+        typeof value === "function" ||
+        isCircularReference(value, seen)
+      ) {
+        return null;
+      }
+
+      const sanitized = {};
+      seen.add(value);
+      for (const [key, val] of Object.entries(value)) {
+        sanitized[key] = sanitizeData(val, seen);
+      }
+      return sanitized;
+    };
+
+    const formatMessageText = (extractedData, input) => {
+      if (extractedData) {
+        return JSON.stringify(sanitizeData(extractedData));
+      }
+      return input ? input.trim() : "";
+    };
+
+    try {
+      const messageText = isDocumentCompleted
+        ? "Download completed"
+        : dropdownSelection
+        ? dropdownSelection
+        : formatMessageText(extractedData, input);
+      if (!messageText) return;
+
+      // Create user message object for backend processing
+      const userMessage = {
+        sender: "user",
+        text: messageText,
         time: getCurrentTime(),
+      };
+
+      // Display a fixed success message in the UI when extracted data is present
+      const displayMessageText = extractedData
+        ? "Document Upload successfully"
+        : messageText;
+
+      // Set message in state for UI
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "user",
+          text: displayMessageText,
+          time: getCurrentTime(),
+        },
+      ]);
+
+      if (!extractedData && !isDocumentCompleted) {
+        setInput("");
+      }
+
+      if (awaitingName) {
+        setUserId(messageText);
+        setAwaitingName(false);
+        sendInitialTrigger(messageText);
+        return;
+      }
+
+      setLoading(true);
+
+      // Add a delay before making the API call if the document is completed
+      if (isDocumentCompleted) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      const response = await axiosInstance.post("/chat/", {
+        message: messageText,
+        user_id: userId,
+        is_extracted_info: Boolean(extractedData),
       });
-    }
 
-    setMessages((prev) => [...prev, ...botResponses]);
-    setOptions(
-      response.data.options ? response.data.options.split(", ") : []
-    );
-    setDocumentOptions(
-      response.data.document_options &&
-        typeof response.data.document_options === "string"
-        ? response.data.document_options.split(", ")
-        : Array.isArray(response.data.document_options)
-        ? response.data.document_options
-        : []
-    );
+      let botResponses = [];
+      if (response.data.response) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.response,
+          time: getCurrentTime(),
+        });
+      }
 
-    console.log(documentOptions);
+      if (response.data.link) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.link,
+          time: getCurrentTime(),
+        });
+      }
 
-    if (extractedData) {
-      setExtractedInfo(null);
+      if (response.data.question) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.question,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.example) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.example,
+          time: getCurrentTime(),
+        });
+      }
+      if (response.data.dropdown) {
+        if (Array.isArray(response.data.dropdown.options)) {
+          setDropdownOptions(response.data.dropdown.options);
+          if (response.data.dropdown.placeholder) {
+            setDropdownPlaceholder(response.data.dropdown.placeholder);
+          }
+        } else if (typeof response.data.dropdown === "string") {
+          // Handle case where dropdown might be a comma-separated string
+          setDropdownOptions(response.data.dropdown.split(", "));
+        }
+      } else {
+        setDropdownOptions([]);
+      }
+
+      // Check for document_name in the response
+      if (response.data.document_name) {
+        botResponses.push({
+          sender: "bot",
+          text: `Document ${response.data.document_name} is ready.`,
+          time: getCurrentTime(),
+        });
+      }
+
+      setMessages((prev) => [...prev, ...botResponses]);
+      setOptions(
+        response.data.options ? response.data.options.split(", ") : []
+      );
+      setDocumentOptions(
+        response.data.document_options &&
+          typeof response.data.document_options === "string"
+          ? response.data.document_options.split(", ")
+          : Array.isArray(response.data.document_options)
+          ? response.data.document_options
+          : []
+      );
+
+      console.log(documentOptions);
+
+      if (extractedData) {
+        setExtractedInfo(null);
+      }
+      if (response.data.response) {
+        await sendToDeepgram(response.data.response);
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again.",
+          time: getCurrentTime(),
+        },
+      ]);
+    } finally {
+      setLoading(false);
     }
-    if (response.data.response) {
-      await sendToDeepgram(response.data.response);
-    }
-  } catch (error) {
-    console.error("Error sending message:", error);
-    setMessages((prev) => [
-      ...prev,
-      {
-        sender: "bot",
-        text: "Sorry, something went wrong. Please try again.",
-        time: getCurrentTime(),
-      },
-    ]);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
   // Define the downloadPDF function
   const downloadPDF = (url, filename) => {
     const link = document.createElement("a");
@@ -508,7 +518,13 @@ const handleSendMessage = async (
       const botMessages = [
         { sender: "bot", text: response.data.response, time: getCurrentTime() },
         ...(response.data.question
-          ? [{ sender: "bot", text: response.data.question, time: getCurrentTime() }]
+          ? [
+              {
+                sender: "bot",
+                text: response.data.question,
+                time: getCurrentTime(),
+              },
+            ]
           : []),
       ];
 
@@ -725,7 +741,7 @@ const handleSendMessage = async (
 
           {/* Messages */}
           <div className="flex-1 p-4 overflow-y-auto">
-           {messages.map((msg, index) => (
+            {messages.map((msg, index) => (
               <div
                 key={index}
                 className={`mb-3 ${
@@ -748,7 +764,7 @@ const handleSendMessage = async (
                 </span>
               </div>
             ))}
-{analysisStage && <DocumentAnalysisLoading stage={analysisStage} />}
+            {analysisStage && <DocumentAnalysisLoading stage={analysisStage} />}
             {/* Extracted Information Display */}
             {extractedInfo && (
               <div className="mb-4 p-4 bg-white rounded-lg shadow border border-gray-200">
@@ -806,7 +822,7 @@ const handleSendMessage = async (
                 {option}
               </button>
             ))}
-                        {dropdownOptions.length > 0 && (
+            {dropdownOptions.length > 0 && (
               <div className="mb-4">
                 <CustomDropdown
                   options={dropdownOptions}

@@ -14,6 +14,7 @@ const App = () => {
         <Route path="/voice" element={<VoicePage />} /> 
         <Route path="/whatsapp" element={<WhatsappMainPage />} /> 
         {/* <Route path="/audio" element={<AuidoMainPage />} />  */}
+        <Route path="/chat" element={<AuidoMainPage />} /> 
         {/* <Route path="/frontdesk" element={<FrontDesk />} />  */}
       </Routes>
     </Router>

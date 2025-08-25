@@ -1,4 +1,5 @@
 import React from 'react';
+import PDFViewerCard from './PDFViewerCard';
 
 const MessageContentRenderer = ({ msg, baseURL }) => {
   // For upload document message with image (front page)
@@ -33,14 +34,7 @@ const MessageContentRenderer = ({ msg, baseURL }) => {
 
   // For PDF links
   if (msg.text.includes(`${baseURL}/pdf`)) {
-    return (
-      <button
-        onClick={() => window.open(msg.text, "_blank")}
-        className="text-blue-500 underline"
-      >
-        View PDF
-      </button>
-    );
+    return <PDFViewerCard url={msg.text} />;
   }
 
   // For regular URLs

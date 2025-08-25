@@ -6,6 +6,7 @@ import MessageContentRenderer from "./Common/DocumentImage";
 import DocumentAnalysisLoading from "./Common/DocumentAnalysisLoading";
 import CustomDropdown from "./Common/CustomDropdown";
 import ReviewLinkCard from "./Common/ReviewLinkCard";
+import PDFViewerCard from "./Common/PDFViewerCard";
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -425,6 +426,13 @@ const Chatbot = () => {
     });
   };
 
+  const constructFullUrl = (url) => {
+    if (url && url.startsWith('/pdf-view/')) {
+      return `${baseURL}${url}`;
+    }
+    return url;
+  };
+
   const sendHiddenMessage = async () => {
     setLoading(true);
     try {
@@ -627,9 +635,10 @@ const Chatbot = () => {
       }
 
       if (response.data.link) {
+        const linkUrl = constructFullUrl(response.data.link);
         botResponses.push({
           sender: "bot",
-          text: response.data.link,
+          text: linkUrl,
           time: getCurrentTime(),
         });
       }
@@ -660,6 +669,14 @@ const Chatbot = () => {
         botResponses.push({
           sender: "bot",
           text: response.data.review_link,
+          time: getCurrentTime(),
+        });
+      }
+      if (response.data.pdf_link) {
+        const pdfUrl = constructFullUrl(response.data.pdf_link);
+        botResponses.push({
+          sender: "bot",
+          text: pdfUrl,
           time: getCurrentTime(),
         });
       }
@@ -724,6 +741,104 @@ const Chatbot = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handlePDFDownload = async (message) => {
+    // Add a user message indicating PDF was downloaded
+    const userMessage = {
+      sender: "user",
+      text: message,
+      time: getCurrentTime(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Send the message to the chat endpoint
+    try {
+      const response = await axiosInstance.post("/chat/", {
+        message: message,
+        user_id: userId,
+      });
+
+      const botResponses = [];
+
+      if (response.data.response) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.response,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.question) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.question,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.review_link) {
+        botResponses.push({
+          sender: "bot",
+          text: response.data.review_link,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.pdf_link) {
+        const pdfUrl = constructFullUrl(response.data.pdf_link);
+        botResponses.push({
+          sender: "bot",
+          text: pdfUrl,
+          time: getCurrentTime(),
+        });
+      }
+
+      if (response.data.dropdown) {
+        if (Array.isArray(response.data.dropdown.options)) {
+          setDropdownOptions(response.data.dropdown.options);
+          if (response.data.dropdown.placeholder) {
+            setDropdownPlaceholder(response.data.dropdown.placeholder);
+          }
+        } else if (typeof response.data.dropdown === "string") {
+          setDropdownOptions(response.data.dropdown.split(", "));
+        }
+      } else {
+        setDropdownOptions([]);
+      }
+
+      if (response.data.document_name) {
+        botResponses.push({
+          sender: "bot",
+          text: `Document ${response.data.document_name} is ready.`,
+          time: getCurrentTime(),
+        });
+      }
+
+      setMessages((prev) => [...prev, ...botResponses]);
+      setOptions(
+        response.data.options ? response.data.options.split(", ") : []
+      );
+      setDocumentOptions(
+        response.data.document_options &&
+          typeof response.data.document_options === "string"
+          ? response.data.document_options.split(", ")
+          : Array.isArray(response.data.document_options)
+          ? response.data.document_options
+          : []
+      );
+
+    } catch (error) {
+      console.error("Error sending PDF download message:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Sorry, something went wrong. Please try again.",
+          time: getCurrentTime(),
+        },
+      ]);
+    }
   };
 
   const handleSubmitExtractedInfo = () => {
@@ -957,11 +1072,15 @@ const Chatbot = () => {
                   msg.sender === "bot" ? "text-left" : "text-right"
                 }`}
               >
-                {/* Check if the message is a review link */}
+                {/* Check if the message is a review link or PDF link */}
                 {msg.sender === "bot" &&
                 msg.text.includes("review") &&
                 msg.text.startsWith("http") ? (
                   <ReviewLinkCard url={msg.text} />
+                ) : msg.sender === "bot" &&
+                  msg.text.startsWith("http") &&
+                  (msg.text.includes(".pdf") || msg.text.includes("pdf-link") || msg.text.includes("/pdf/") || msg.text.includes("/pdf-view/")) ? (
+                  <PDFViewerCard url={msg.text} onDownload={handlePDFDownload} />
                 ) : (
                   <span
                     className={`relative inline-block px-4 py-6 rounded-lg ${

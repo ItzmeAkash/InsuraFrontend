@@ -4,6 +4,9 @@ import MainPage from "./components/MainPage";
 import VoicePage from "./components/Voice/VoicePage";
 import WhatsappMainPage from "./components/whatsapp/WhatsappMainPage";
 import AuidoMainPage from './components/audio/AudioMainPage'
+import LiveKitMainPage from './components/livekit-avatar/LiveKitMainPage'
+import PdfViewPage from './components/Common/PdfViewPage'
+
 // import FrontDesk from './components/frontdesk/frontDesk'
 
 const App = () => {
@@ -13,9 +16,11 @@ const App = () => {
         <Route path="/" element={<MainPage />} />
         <Route path="/voice" element={<VoicePage />} /> 
         <Route path="/whatsapp" element={<WhatsappMainPage />} /> 
+        <Route path="/livekit" element={<LiveKitMainPage />} /> 
         {/* <Route path="/audio" element={<AuidoMainPage />} />  */}
         <Route path="/chat" element={<AuidoMainPage />} /> 
         {/* <Route path="/frontdesk" element={<FrontDesk />} />  */}
+        <Route path="/slver-plan/pdf-view/*" element={<PdfViewPage />} />
       </Routes>
     </Router>
   );

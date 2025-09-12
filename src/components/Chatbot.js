@@ -427,7 +427,9 @@ const Chatbot = () => {
   };
 
   const constructFullUrl = (url) => {
-    if (url && url.startsWith('/pdf-view/')) {
+    if (!url) return url;
+    if (url.startsWith("http")) return url;
+    if (url.startsWith('/pdf/') || url.startsWith('/pdf-view/')) {
       return `${baseURL}${url}`;
     }
     return url;
@@ -744,6 +746,10 @@ const Chatbot = () => {
   };
 
   const handlePDFDownload = async (message) => {
+    // If the user has not provided a name yet, skip sending the chat event
+    if (!userId) {
+      return;
+    }
     // Add a user message indicating PDF was downloaded
     const userMessage = {
       sender: "user",

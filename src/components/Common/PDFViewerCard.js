@@ -12,18 +12,9 @@ const PDFViewerCard = ({ url, filename = "Document.pdf", onDownload }) => {
     link.click();
     document.body.removeChild(link);
     
-    // Show download message
     setDownloadStatus("Document downloaded successfully!");
-    
-    // Call the callback function if provided
-    if (onDownload) {
-      onDownload("PDF downloaded successfully!");
-    }
-    
-    // Clear the message after 3 seconds
-    setTimeout(() => {
-      setDownloadStatus("");
-    }, 3000);
+    if (onDownload) onDownload("PDF downloaded successfully!");
+    setTimeout(() => setDownloadStatus(""), 3000);
   };
 
   return (

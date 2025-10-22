@@ -71,20 +71,27 @@ const VoiceBot = () => {
         setTimeout(() => setAnalysisStage("analyzing"), 1000);
         setTimeout(() => setAnalysisStage("extracting"), 2500);
 
-        let response;
-        if (uploadedFile.type === "application/pdf") {
-          response = await axiosInstance.post("/extract-pdf/", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          });
+        // Determine endpoint based on conversation and file type
+        const isExcelRequest = (text) => {
+          const t = (text || "").toLowerCase();
+          return t.includes("upload an excel") && t.includes("medical insurance");
+        };
+
+        const lastBotMessage = [...messages].reverse().find((m) => m.sender === "bot");
+        let endpoint;
+        if (lastBotMessage && isExcelRequest(lastBotMessage.text)) {
+          endpoint = "/upload-excel/";
+        } else if (uploadedFile.type === "application/pdf") {
+          endpoint = "/extract-pdf/";
         } else {
-          response = await axiosInstance.post("/extract-image/", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          });
+          endpoint = "/extract-image/";
         }
+
+        const response = await axiosInstance.post(endpoint, formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
 
         setAnalysisStage("complete");
         setTimeout(() => setAnalysisStage(null), 1500); // Clear the stage after showing completion
@@ -875,7 +882,7 @@ const VoiceBot = () => {
                   type="file"
                   className="hidden"
                   onChange={handleFileAttach}
-                  accept="image/*,.pdf,.doc,.docx"
+                  accept="image/*,.pdf,.doc,.docx,.xlsx,.xls"
                 />
                 <AiOutlinePaperClip
                   className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${

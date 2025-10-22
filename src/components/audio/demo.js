@@ -175,12 +175,19 @@ const VoiceChatbot = () => {
 
     // Helper to determine the correct endpoint based on conversation state
     function determineEndpoint(fileToUpload) {
+      const isExcelRequest = (text) => {
+        const t = (text || "").toLowerCase();
+        return t.includes("upload an excel") && t.includes("medical insurance");
+      };
       // Get the last bot message to determine what was most recently requested
       const recentMessages = [...messages].reverse();
       const lastBotMessage = recentMessages.find((msg) => msg.sender === "bot");
 
       // First, check if we have a direct match from the most recent bot message
       if (lastBotMessage) {
+        if (isExcelRequest(lastBotMessage.text)) {
+          return "/upload-excel/";
+        }
         if (
           lastBotMessage.text.includes(
             "Please Upload Front Page of Your Document"
@@ -233,6 +240,10 @@ const VoiceChatbot = () => {
           msg.text.includes("Thank you for uploading the Front Page")
       );
 
+      const excelRequested = messages.some(
+        (msg) => msg.sender === "bot" && isExcelRequest(msg.text)
+      );
+
       // If no direct match from the most recent message, fall back to the previous logic
       // Check document request status in conversation history
       const licenseRequested = messages.some(
@@ -278,7 +289,9 @@ const VoiceChatbot = () => {
       );
 
       // Determine appropriate endpoint based on conversation flow
-      if (frontPageRequested && frontPageCompleted) {
+      if (excelRequested) {
+        return "/upload-excel/";
+      } else if (frontPageRequested && frontPageCompleted) {
         return "/extract-front-page-emirate/";
       } else if (licenseRequested && !licenseCompleted) {
         return "/extract-licence/";
@@ -1452,7 +1465,7 @@ const handleSendMessage = async (
                   type="file"
                   className="hidden"
                   onChange={handleFileAttach}
-                  accept="image/*,.pdf,.doc,.docx"
+                  accept="image/*,.pdf,.doc,.docx,.xlsx,.xls"
                   multiple
                   disabled={isRecording || loading || uploadLoading} // Disable file input during recording or loading
                 />

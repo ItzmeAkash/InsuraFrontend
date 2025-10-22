@@ -5,6 +5,7 @@ import { FiEdit2, FiCheck, FiX } from "react-icons/fi";
 import MessageContentRenderer from "../Common/DocumentImage";
 import DocumentAnalysisLoading from "../Common/DocumentAnalysisLoading";
 import CustomDropdown from "../Common/CustomDropdown";
+import { getTranslation, detectLanguageFromMessages } from "../../services/language";
 
 const WhatAppChatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -25,6 +26,8 @@ const WhatAppChatbot = () => {
   const [dropdownOptions, setDropdownOptions] = useState([]);
   const [dropdownPlaceholder, setDropdownPlaceholder] =
     useState("Select an option");
+
+  const langCode = detectLanguageFromMessages(messages);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,33 +73,67 @@ const WhatAppChatbot = () => {
       // Debug log
       console.log("FormData contents:", ...formData);
 
-      // Determine the appropriate endpoint based on file type and context
+      // Determine the appropriate endpoint based on metadata (multilingual support)
       let endpoint;
 
-      // Check if this is a driving license upload request
-      const isDrivingLicense = messages.some(
-        (msg) =>
-          (msg.sender === "bot" &&
-            msg.text.includes(
-              "Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license"
-            )) ||
-          msg.text.includes(
-            "Let's Move back to Please Upload Your Driving license"
-          )
-      );
+      const lastBotMessage = [...messages].reverse().find((m) => m.sender === "bot");
+      
+      // First, check if we have metadata from the backend (recommended approach)
+      if (lastBotMessage && lastBotMessage.message_type === "document_upload_request") {
+        // Use document_type to determine endpoint - language independent!
+        const docTypeToEndpoint = {
+          'emirates_id_front': uploadedFile.type === "application/pdf" ? "/extract-pdf/" : "/extract-image/",
+          'emirates_id_back': uploadedFile.type === "application/pdf" ? "/extract-pdf/" : "/extract-image/",
+          'driving_license': uploadedFile.type === "application/pdf" ? "/extract-pdf-licence/" : "/extract-image-licence/",
+          'mulkiya': uploadedFile.type === "application/pdf" ? "/extract-pdf/" : "/extract-image/",
+          'excel': '/upload-excel/',
+          'emirates_id': uploadedFile.type === "application/pdf" ? "/extract-pdf/" : "/extract-image/",
+        };
+        
+        endpoint = docTypeToEndpoint[lastBotMessage.document_type];
+        if (endpoint) {
+          console.log(`[Metadata-based routing] Using endpoint: ${endpoint} for document_type: ${lastBotMessage.document_type}`);
+        }
+      }
+      
+      // Fallback: String matching for backwards compatibility (works only in English)
+      if (!endpoint) {
+        console.log('[Fallback routing] Using text-based matching - metadata not available');
+        
+        const isExcelRequest = (text) => {
+          const t = (text || "").toLowerCase();
+          return t.includes("upload an excel") && t.includes("medical insurance");
+        };
 
-      if (isDrivingLicense) {
-        // Use license-specific endpoints
-        endpoint =
-          uploadedFile.type === "application/pdf"
-            ? "/extract-pdf-licence/"
-            : "/extract-image-licence/";
-      } else {
-        // Use standard document endpoints
-        endpoint =
-          uploadedFile.type === "application/pdf"
-            ? "/extract-pdf/"
-            : "/extract-image/";
+        if (lastBotMessage && isExcelRequest(lastBotMessage.text)) {
+          endpoint = "/upload-excel/";
+        } else {
+          // Check if this is a driving license upload request
+          const isDrivingLicense = messages.some(
+            (msg) =>
+              (msg.sender === "bot" &&
+                msg.text.includes(
+                  "Thank you for uploading the document. Now, let's move on to: Please Upload Your Driving license"
+                )) ||
+              msg.text.includes(
+                "Let's Move back to Please Upload Your Driving license"
+              )
+          );
+
+          if (isDrivingLicense) {
+            // Use license-specific endpoints
+            endpoint =
+              uploadedFile.type === "application/pdf"
+                ? "/extract-pdf-licence/"
+                : "/extract-image-licence/";
+          } else {
+            // Use standard document endpoints
+            endpoint =
+              uploadedFile.type === "application/pdf"
+                ? "/extract-pdf/"
+                : "/extract-image/";
+          }
+        }
       }
 
       // Make API call
@@ -110,7 +147,96 @@ const WhatAppChatbot = () => {
 
       setAnalysisStage("complete");
       console.log("Extracted Information:", response.data);
-      setExtractedInfo(response.data);
+      // Excel uploads: do not display detailed data in chat, but send to backend
+      if (endpoint === "/upload-excel/") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "user",
+            text: getTranslation('excelUploadSuccess', langCode),
+            time: getCurrentTime(),
+          },
+        ]);
+        
+        // Send the extracted data to chat endpoint automatically
+        setTimeout(async () => {
+          try {
+            setLoading(true);
+            const chatResponse = await axiosInstance.post("/chat/", {
+              message: JSON.stringify(response.data),
+              user_id: userId,
+              is_extracted_info: true,
+            });
+
+            let botResponses = [];
+            if (chatResponse.data.response) {
+              botResponses.push({
+                sender: "bot",
+                text: chatResponse.data.response,
+                time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: chatResponse.data.message_type,
+                document_type: chatResponse.data.document_type,
+                language: chatResponse.data.language,
+                language_code: chatResponse.data.language_code,
+              });
+            }
+
+            if (chatResponse.data.question) {
+              botResponses.push({
+                sender: "bot",
+                text: chatResponse.data.question,
+                time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: chatResponse.data.message_type,
+                document_type: chatResponse.data.document_type,
+                language: chatResponse.data.language,
+                language_code: chatResponse.data.language_code,
+              });
+            }
+
+            if (chatResponse.data.dropdown) {
+              if (Array.isArray(chatResponse.data.dropdown.options)) {
+                setDropdownOptions(chatResponse.data.dropdown.options);
+                if (chatResponse.data.dropdown.placeholder) {
+                  setDropdownPlaceholder(chatResponse.data.dropdown.placeholder);
+                }
+              } else if (typeof chatResponse.data.dropdown === "string") {
+                setDropdownOptions(chatResponse.data.dropdown.split(", "));
+              }
+            } else {
+              setDropdownOptions([]);
+            }
+
+            setMessages((prev) => [...prev, ...botResponses]);
+            setOptions(
+              chatResponse.data.options ? chatResponse.data.options.split(", ") : []
+            );
+            setDocumentOptions(
+              chatResponse.data.document_options &&
+                typeof chatResponse.data.document_options === "string"
+                ? chatResponse.data.document_options.split(", ")
+                : Array.isArray(chatResponse.data.document_options)
+                ? chatResponse.data.document_options
+                : []
+            );
+          } catch (error) {
+            console.error("Error sending excel data to chat:", error);
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: "bot",
+                text: "Excel uploaded but failed to process. Please try again.",
+                time: getCurrentTime(),
+              },
+            ]);
+          } finally {
+            setLoading(false);
+          }
+        }, 1600);
+      } else {
+        setExtractedInfo(response.data);
+      }
     } catch (error) {
       console.error("Error details:", {
         message: error.message,
@@ -121,7 +247,7 @@ const WhatAppChatbot = () => {
       setAnalysisStage(null);
       const errorMessage =
         error.response?.data?.message ||
-        "Sorry, I couldn't process your document. Please try again.";
+        getTranslation('errorProcessingDocument', langCode);
 
       setMessages((prev) => [
         ...prev,
@@ -194,13 +320,27 @@ const WhatAppChatbot = () => {
 
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response, time: getCurrentTime() },
+        { 
+          sender: "bot", 
+          text: response.data.response, 
+          time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
+          language: response.data.language,
+          language_code: response.data.language_code,
+        },
         ...(response.data.question
           ? [
               {
                 sender: "bot",
                 text: response.data.question,
                 time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: response.data.message_type,
+                document_type: response.data.document_type,
+                language: response.data.language,
+                language_code: response.data.language_code,
               },
             ]
           : []),
@@ -351,6 +491,9 @@ const WhatAppChatbot = () => {
           sender: "bot",
           text: response.data.response,
           time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
         });
       }
 
@@ -367,6 +510,9 @@ const WhatAppChatbot = () => {
           sender: "bot",
           text: response.data.question,
           time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
         });
       }
 
@@ -463,13 +609,23 @@ const WhatAppChatbot = () => {
 
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response, time: getCurrentTime() },
+        { 
+          sender: "bot", 
+          text: response.data.response, 
+          time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
+        },
         ...(response.data.question
           ? [
               {
                 sender: "bot",
                 text: response.data.question,
                 time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: response.data.message_type,
+                document_type: response.data.document_type,
               },
             ]
           : []),
@@ -653,7 +809,7 @@ const WhatAppChatbot = () => {
           <div className="bg-white text-black flex items-center justify-end p-4 border-t-8 border-chatbotHeaderColor">
             <div className="flex flex-col items-start space-y-1">
               <h3 className="font-semibold text-lg">Insura</h3>
-              {loading && <div className="text-black text-sm">Typing...</div>}
+              {loading && <div className="text-black text-sm">{getTranslation('typing', langCode)}</div>}
             </div>
             <img
               src="/Insura.jpeg"
@@ -712,7 +868,7 @@ const WhatAppChatbot = () => {
                       loading ? "opacity-50 cursor-not-allowed" : ""
                     }`}
                   >
-                    Submit All
+                    {getTranslation('submitAll', langCode)}
                   </button>
                 </div>
               </div>
@@ -798,7 +954,7 @@ const WhatAppChatbot = () => {
                   type="file"
                   className="hidden"
                   onChange={handleFileAttach}
-                  accept="image/*,.pdf,.doc,.docx"
+                  accept="image/*,.pdf,.doc,.docx,.xlsx,.xls"
                 />
                 <AiOutlinePaperClip
                   className={`pl-2 h-8 w-8 text-gray-500 hover:text-black ${
@@ -811,7 +967,7 @@ const WhatAppChatbot = () => {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
+                placeholder={getTranslation('inputPlaceholder', langCode)}
                 className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -828,7 +984,7 @@ const WhatAppChatbot = () => {
                 }`}
                 disabled={uploadLoading || loading}
               >
-                Send
+                {getTranslation('send', langCode)}
               </button>
             </div>
           </div>

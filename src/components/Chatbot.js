@@ -7,6 +7,7 @@ import DocumentAnalysisLoading from "./Common/DocumentAnalysisLoading";
 import CustomDropdown from "./Common/CustomDropdown";
 import ReviewLinkCard from "./Common/ReviewLinkCard";
 import PDFViewerCard from "./Common/PDFViewerCard";
+import { getTranslation, detectLanguageFromMessages } from "../services/language";
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -27,6 +28,8 @@ const Chatbot = () => {
   const [dropdownOptions, setDropdownOptions] = useState([]);
   const [dropdownPlaceholder, setDropdownPlaceholder] =
     useState("Select an option");
+
+  const langCode = detectLanguageFromMessages(messages);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -112,7 +115,7 @@ const Chatbot = () => {
       setAnalysisStage("error");
       const errorMessage =
         error.response?.data?.message ||
-        "Sorry, I couldn't process your document. Please try again.";
+        getTranslation('errorProcessingDocument', langCode);
       setMessages((prev) => [
         ...prev,
         {
@@ -149,25 +152,172 @@ const Chatbot = () => {
         retries: 3,
       });
   
-      // Set analysis stage to complete - this will show "Analysis complete!" to the user
+      // Excel uploads: do not show detailed data in chat, but send to backend
+      if (endpoint === "/upload-excel/") {
+        console.log("[upload-excel] Full response:", response);
+        console.log("[upload-excel] Response data:", response.data);
+        setAnalysisStage("complete");
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "user",
+            text: getTranslation('excelUploadSuccess', langCode),
+            time: getCurrentTime(),
+          },
+        ]);
+        setTimeout(() => setAnalysisStage(null), 500);
+        
+        // Send the extracted data to chat endpoint automatically
+        setTimeout(async () => {
+          try {
+            setLoading(true);
+            const chatResponse = await axiosInstance.post("/chat/", {
+              message: JSON.stringify(response.data),
+              user_id: userId,
+              is_extracted_info: true,
+            });
+
+            let botResponses = [];
+            if (chatResponse.data.response) {
+              botResponses.push({
+                sender: "bot",
+                text: chatResponse.data.response,
+                time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: chatResponse.data.message_type,
+                document_type: chatResponse.data.document_type,
+                language: chatResponse.data.language,
+                language_code: chatResponse.data.language_code,
+              });
+            }
+
+            if (chatResponse.data.question) {
+              botResponses.push({
+                sender: "bot",
+                text: chatResponse.data.question,
+                time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: chatResponse.data.message_type,
+                document_type: chatResponse.data.document_type,
+                language: chatResponse.data.language,
+                language_code: chatResponse.data.language_code,
+              });
+            }
+
+            if (chatResponse.data.link) {
+              const linkUrl = constructFullUrl(chatResponse.data.link);
+              botResponses.push({
+                sender: "bot",
+                text: linkUrl,
+                time: getCurrentTime(),
+                language: chatResponse.data.language,
+                language_code: chatResponse.data.language_code,
+              });
+            }
+
+            if (chatResponse.data.pdf_link) {
+              const pdfUrl = constructFullUrl(chatResponse.data.pdf_link);
+              botResponses.push({
+                sender: "bot",
+                text: pdfUrl,
+                time: getCurrentTime(),
+                language: chatResponse.data.language,
+                language_code: chatResponse.data.language_code,
+              });
+            }
+
+            if (chatResponse.data.dropdown) {
+              if (Array.isArray(chatResponse.data.dropdown.options)) {
+                setDropdownOptions(chatResponse.data.dropdown.options);
+                if (chatResponse.data.dropdown.placeholder) {
+                  setDropdownPlaceholder(chatResponse.data.dropdown.placeholder);
+                }
+              } else if (typeof chatResponse.data.dropdown === "string") {
+                setDropdownOptions(chatResponse.data.dropdown.split(", "));
+              }
+            } else {
+              setDropdownOptions([]);
+            }
+
+            setMessages((prev) => [...prev, ...botResponses]);
+            setOptions(
+              chatResponse.data.options ? chatResponse.data.options.split(", ") : []
+            );
+            setDocumentOptions(
+              chatResponse.data.document_options &&
+                typeof chatResponse.data.document_options === "string"
+                ? chatResponse.data.document_options.split(", ")
+                : Array.isArray(chatResponse.data.document_options)
+                ? chatResponse.data.document_options
+                : []
+            );
+          } catch (error) {
+            console.error("Error sending excel data to chat:", error);
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: "bot",
+                text: "Excel uploaded but failed to process. Please try again.",
+                time: getCurrentTime(),
+              },
+            ]);
+          } finally {
+            setLoading(false);
+          }
+        }, 600);
+        
+        return;
+      }
+
+      // Non-excel: proceed to show extracted information
       setAnalysisStage("complete");
       console.log("Extracted Information:", response.data);
       setExtractedInfo(response.data);
-  
+
       // Hide analysis stage after 0.5 seconds
       setTimeout(() => {
         setAnalysisStage(null);
       }, 500);
     }
   
-    // Helper to determine the correct endpoint based on conversation state
+    // Helper to determine the correct endpoint based on metadata (multilingual support)
     function determineEndpoint(fileToUpload) {
       // Get the last bot message to determine what was most recently requested
       const recentMessages = [...messages].reverse();
       const lastBotMessage = recentMessages.find((msg) => msg.sender === "bot");
   
-      // First, check if we have a direct match from the most recent bot message
+      // First, check if we have metadata from the backend (recommended approach)
+      if (lastBotMessage && lastBotMessage.message_type === "document_upload_request") {
+        // Use document_type to determine endpoint - language independent!
+        const docTypeToEndpoint = {
+          'emirates_id_front': '/extract-front-page-emirate/',
+          'emirates_id_back': '/extract-back-page-emirate/',
+          'driving_license': '/extract-licence/',
+          'mulkiya': '/extract-mulkiya/',
+          'excel': '/upload-excel/',
+          'emirates_id': '/extract-emirate/',  // Default emirates ID endpoint
+        };
+        
+        const endpoint = docTypeToEndpoint[lastBotMessage.document_type];
+        if (endpoint) {
+          console.log(`[Metadata-based routing] Using endpoint: ${endpoint} for document_type: ${lastBotMessage.document_type}`);
+          return endpoint;
+        }
+      }
+      
+      // Fallback: String matching for backwards compatibility (works only in English)
+      console.log('[Fallback routing] Using text-based matching - metadata not available');
+      
+      const isExcelRequest = (text) => {
+        const t = (text || "").toLowerCase();
+        return t.includes("upload an excel") && t.includes("medical insurance");
+      };
+  
+      // Check if we have a direct match from the most recent bot message
       if (lastBotMessage) {
+        if (isExcelRequest(lastBotMessage.text)) {
+          return "/upload-excel/";
+        }
         if (
           lastBotMessage.text.includes(
             "Please Upload Front Page of Your Document"
@@ -175,7 +325,6 @@ const Chatbot = () => {
         ) {
           return "/extract-front-page-emirate/";
         }
-        // Check for driving license request in the most recent message
         if (
           lastBotMessage.text.includes("Please Upload Your Driving license") ||
           lastBotMessage.text.includes(
@@ -187,8 +336,6 @@ const Chatbot = () => {
         ) {
           return "/extract-licence/";
         }
-  
-        // Check for mulkiya request in the most recent message
         if (
           lastBotMessage.text.includes("Please Upload Mulkiya") ||
           lastBotMessage.text.includes(
@@ -198,8 +345,6 @@ const Chatbot = () => {
         ) {
           return "/extract-mulkiya/";
         }
-  
-        // Check for back page request in the most recent message
         if (
           lastBotMessage.text.includes(
             "Please Upload Back Page of Your Document"
@@ -209,19 +354,10 @@ const Chatbot = () => {
         }
       }
   
-      const frontPageRequested = messages.some(
-        (msg) =>
-          msg.sender === "bot" &&
-          msg.text.includes("Please Upload Front Page of Your Document")
+      const excelRequested = messages.some(
+        (msg) => msg.sender === "bot" && isExcelRequest(msg.text)
       );
-      const frontPageCompleted = messages.some(
-        (msg) =>
-          msg.sender === "bot" &&
-          msg.text.includes("Thank you for uploading the Front Page")
-      );
-  
-      // If no direct match from the most recent message, fall back to the previous logic
-      // Check document request status in conversation history
+
       const licenseRequested = messages.some(
         (msg) =>
           msg.sender === "bot" &&
@@ -265,8 +401,8 @@ const Chatbot = () => {
       );
   
       // Determine appropriate endpoint based on conversation flow
-      if (frontPageRequested && frontPageCompleted) {
-        return "/extract-front-page-emirate/";
+      if (excelRequested) {
+        return "/upload-excel/";
       } else if (licenseRequested && !licenseCompleted) {
         return "/extract-licence/";
       } else if (mulkiyaRequested && !mulkiyaCompleted) {
@@ -275,137 +411,55 @@ const Chatbot = () => {
         return "/extract-back-page-emirate/";
       } else {
         // Default to emirates ID extraction if no specific document is requested
-        return "/extract-emirate/";
+          return "/extract-emirate/";
       }
     }
 
-    // Helper to update messages based on document type
+    // Helper to update messages based on document type using metadata (multilingual support)
     function updateMessageForDocumentType(endpoint) {
+      // Get the last bot message to access metadata
+      const recentMessages = [...messages].reverse();
+      const lastBotMessage = recentMessages.find((msg) => msg.sender === "bot");
+      
       let confirmationMessage = "Thank you for uploading the document.";
       let nextStep = "";
 
-      // Determine confirmation message based on the endpoint
-      if (endpoint === "/extract-front-page-emirate/") {
-        confirmationMessage = "Thank you for uploading the Front Page";
+      // Use metadata if available (recommended, language-independent)
+      if (lastBotMessage && lastBotMessage.document_type) {
+        const confirmations = {
+          'emirates_id_front': 'Thank you for uploading the Front Page',
+          'emirates_id_back': 'Thank you for uploading the Back Page',
+          'driving_license': 'Thank you for uploading the Driving license',
+          'mulkiya': 'Thank you for uploading the Mulkiya',
+          'excel': 'Thank you for uploading the Excel file',
+          'emirates_id': 'Thank you for uploading the Emirates ID',
+        };
+
+        confirmationMessage = confirmations[lastBotMessage.document_type] || confirmationMessage;
+        console.log(`[Metadata-based confirmation] Using confirmation for document_type: ${lastBotMessage.document_type}`);
       } else {
-        // For Emirates ID front page, check if we need to request the back page
-        const frontPageRequested = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Please Upload Front Page of Your Document")
-        );
-
-        const frontPageCompleted = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Thank you for uploading the Front Page")
-        );
-
-        const licenseRequested = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Please Upload Your Driving license")
-        );
-
-        const licenseCompleted = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Thank you for uploading the Driving license")
-        );
-
-        if (!licenseRequested && !licenseCompleted) {
-          nextStep =
-            " Now, let's move on to: Please Upload Your Driving license";
-        } else if (!frontPageRequested && !frontPageCompleted) {
-          nextStep =
-            " Now, let's move on to: Please Upload front Page of Your Document";
-        }
-      }
-      if (endpoint === "/extract-licence/") {
-        confirmationMessage = "Thank you for uploading the Driving license";
-
-        // Check if mulkiya is the next required document
-        const mulkiyaRequested = messages.some(
-          (msg) =>
-            msg.sender === "bot" && msg.text.includes("Please Upload Mulkiya")
-        );
-
-        const mulkiyaCompleted = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Thank you for uploading the Mulkiya")
-        );
-
-        if (!mulkiyaRequested && !mulkiyaCompleted) {
-          nextStep = " Now, let's move on to: Please Upload Mulkiya";
-        }
-      } else if (endpoint === "/extract-mulkiya/") {
-        confirmationMessage = "Thank you for uploading the Mulkiya";
-
-        // Check if back page is the next required document
-        const backPageRequested = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Please Upload Back Page of Your Document")
-        );
-
-        const backPageCompleted = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Thank you for uploading the Back Page")
-        );
-
-        if (!backPageRequested && !backPageCompleted) {
-          nextStep =
-            " Now, let's move on to: Please Upload Back Page of Your Document";
-        }
-      } else if (endpoint === "/extract-back-page-emirate/") {
-        confirmationMessage = "Thank you for uploading the Back Page";
-
-        // Add any final step or completion message here if needed
-        nextStep = " Your document processing is now complete.";
-      } else {
-        // For Emirates ID front page, check if we need to request the back page
-        const backPageRequested = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Please Upload Back Page of Your Document")
-        );
-
-        const backPageCompleted = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Thank you for uploading the Back Page")
-        );
-
-        const licenseRequested = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Please Upload Your Driving license")
-        );
-
-        const licenseCompleted = messages.some(
-          (msg) =>
-            msg.sender === "bot" &&
-            msg.text.includes("Thank you for uploading the Driving license")
-        );
-
-        if (!licenseRequested && !licenseCompleted) {
-          nextStep =
-            " Now, let's move on to: Please Upload Your Driving license";
-        } else if (!backPageRequested && !backPageCompleted) {
-          nextStep =
-            " Now, let's move on to: Please Upload Back Page of Your Document";
+        // Fallback: endpoint-based confirmation (legacy approach)
+        console.log('[Fallback confirmation] Using endpoint-based confirmation');
+        
+        if (endpoint === "/extract-front-page-emirate/") {
+          confirmationMessage = "Thank you for uploading the Front Page";
+        } else if (endpoint === "/extract-licence/") {
+          confirmationMessage = "Thank you for uploading the Driving license";
+        } else if (endpoint === "/extract-mulkiya/") {
+          confirmationMessage = "Thank you for uploading the Mulkiya";
+        } else if (endpoint === "/extract-back-page-emirate/") {
+          confirmationMessage = "Thank you for uploading the Back Page";
         }
       }
 
-      // Update conversation with confirmation and next step
+      // Update conversation with confirmation
       setMessages((prev) => [
         ...prev,
         {
           sender: "bot",
-          text: confirmationMessage + nextStep,
+          text: confirmationMessage,
           time: getCurrentTime(),
+          message_type: "confirmation", // Mark as confirmation
         },
       ]);
     }
@@ -458,7 +512,7 @@ const Chatbot = () => {
         ...prev,
         {
           sender: "bot",
-          text: "Sorry, something went wrong. Please try again later!",
+          text: getTranslation('errorSendingMessage', langCode),
           time: getCurrentTime(),
         },
       ]);
@@ -476,13 +530,27 @@ const Chatbot = () => {
 
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response, time: getCurrentTime() },
+        { 
+          sender: "bot", 
+          text: response.data.response, 
+          time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
+          language: response.data.language,
+          language_code: response.data.language_code,
+        },
         ...(response.data.question
           ? [
               {
                 sender: "bot",
                 text: response.data.question,
                 time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: response.data.message_type,
+                document_type: response.data.document_type,
+                language: response.data.language,
+                language_code: response.data.language_code,
               },
             ]
           : []),
@@ -592,7 +660,7 @@ const Chatbot = () => {
       };
 
       const displayMessageText = extractedData
-        ? "Document Upload successfully"
+        ? getTranslation('documentUploadSuccess', langCode)
         : messageText;
 
       setMessages((prev) => [
@@ -633,6 +701,11 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.response,
           time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
 
@@ -642,6 +715,8 @@ const Chatbot = () => {
           sender: "bot",
           text: linkUrl,
           time: getCurrentTime(),
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
 
@@ -650,6 +725,11 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.question,
           time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
 
@@ -658,6 +738,8 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.example,
           time: getCurrentTime(),
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
       if (response.data.review_message) {
@@ -665,6 +747,8 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.review_message,
           time: getCurrentTime(),
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
       if (response.data.review_link) {
@@ -672,6 +756,8 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.review_link,
           time: getCurrentTime(),
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
       if (response.data.pdf_link) {
@@ -680,6 +766,8 @@ const Chatbot = () => {
           sender: "bot",
           text: pdfUrl,
           time: getCurrentTime(),
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
       if (response.data.dropdown) {
@@ -700,6 +788,8 @@ const Chatbot = () => {
           sender: "bot",
           text: `Document ${response.data.document_name} is ready.`,
           time: getCurrentTime(),
+          language: response.data.language,
+          language_code: response.data.language_code,
         });
       }
 
@@ -727,7 +817,7 @@ const Chatbot = () => {
         ...prev,
         {
           sender: "bot",
-          text: "Sorry, something went wrong. Please try again.",
+          text: getTranslation('errorSendingMessage', langCode),
           time: getCurrentTime(),
         },
       ]);
@@ -772,6 +862,9 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.response,
           time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
         });
       }
 
@@ -780,6 +873,9 @@ const Chatbot = () => {
           sender: "bot",
           text: response.data.question,
           time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
         });
       }
 
@@ -870,13 +966,23 @@ const Chatbot = () => {
 
       setMessages((prev) => [
         ...prev,
-        { sender: "bot", text: response.data.response, time: getCurrentTime() },
+        { 
+          sender: "bot", 
+          text: response.data.response, 
+          time: getCurrentTime(),
+          // Preserve metadata for multilingual support
+          message_type: response.data.message_type,
+          document_type: response.data.document_type,
+        },
         ...(response.data.question
           ? [
               {
                 sender: "bot",
                 text: response.data.question,
                 time: getCurrentTime(),
+                // Preserve metadata for multilingual support
+                message_type: response.data.message_type,
+                document_type: response.data.document_type,
               },
             ]
           : []),
@@ -956,6 +1062,13 @@ const Chatbot = () => {
     const [value, setValue] = useState(initialValue);
     const [editValue, setEditValue] = useState(initialValue);
     const inputRef = useRef(null);
+    const isComplexValue =
+      initialValue !== null && typeof initialValue === "object";
+    const displayValue = isComplexValue
+      ? JSON.stringify(initialValue, null, 2)
+      : value;
+    const isEditable = !isComplexValue;
+
 
     const displayName = field
       .split("_")
@@ -998,7 +1111,7 @@ const Chatbot = () => {
       <div className="flex items-center justify-between p-2 border-b border-gray-200 hover:bg-gray-50">
         <div className="font-medium text-gray-700">{displayName}</div>
         <div className="flex items-center gap-2">
-          {isEditing ? (
+          {isEditable && isEditing ? (
             <div className="flex items-center gap-2">
               <input
                 ref={inputRef}
@@ -1026,14 +1139,22 @@ const Chatbot = () => {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-gray-900">{value}</span>
-              <button
-                onClick={handleEditStart}
-                className="p-1 text-gray-600 hover:text-gray-800 transition-colors"
-                title="Edit"
-              >
-                <FiEdit2 className="w-4 h-4" />
-              </button>
+              {isComplexValue ? (
+                <pre className="text-gray-900 whitespace-pre-wrap break-words max-w-[18rem]">
+                  {displayValue}
+                </pre>
+              ) : (
+                <span className="text-gray-900">{displayValue}</span>
+              )}
+              {isEditable && (
+                <button
+                  onClick={handleEditStart}
+                  className="p-1 text-gray-600 hover:text-gray-800 transition-colors"
+                  title="Edit"
+                >
+                  <FiEdit2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1060,7 +1181,7 @@ const Chatbot = () => {
           <div className="bg-white text-black flex items-center justify-end p-4 border-t-8 border-chatbotHeaderColor">
             <div className="flex flex-col items-start space-y-1">
               <h3 className="font-semibold text-lg">Insura</h3>
-              {loading && <div className="text-black text-sm">Typing...</div>}
+              {loading && <div className="text-black text-sm">{getTranslation('typing', langCode)}</div>}
             </div>
             <img
               src="/Insura.jpeg"
@@ -1130,7 +1251,7 @@ const Chatbot = () => {
                       loading ? "opacity-50 cursor-not-allowed" : ""
                     }`}
                   >
-                    Submit All
+                    {getTranslation('submitAll', langCode)}
                   </button>
                 </div>
               </div>
@@ -1216,7 +1337,7 @@ const Chatbot = () => {
                   type="file"
                   className="hidden"
                   onChange={handleFileAttach}
-                  accept="image/*,.pdf,.doc,.docx"
+                  accept="image/*,.pdf,.doc,.docx,.xlsx,.xls"
                   multiple
                 />
                 <AiOutlinePaperClip
@@ -1230,7 +1351,7 @@ const Chatbot = () => {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
+                placeholder={getTranslation('inputPlaceholder', langCode)}
                 className="flex-1 p-2 border rounded-lg border-gray-300 focus:outline-none focus:ring focus:ring-gray-200"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {

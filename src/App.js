@@ -5,6 +5,7 @@ import VoicePage from "./components/Voice/VoicePage";
 import WhatsappMainPage from "./components/whatsapp/WhatsappMainPage";
 import AuidoMainPage from './components/audio/AudioMainPage'
 import PdfViewPage from './components/Common/PdfViewPage'
+import { AgentVideoComponent } from './components/avatar'
 
 // import FrontDesk from './components/frontdesk/frontDesk'
 
@@ -17,6 +18,8 @@ const App = () => {
         <Route path="/whatsapp" element={<WhatsappMainPage />} /> 
         {/* <Route path="/audio" element={<AuidoMainPage />} />  */}
         <Route path="/chat" element={<AuidoMainPage />} /> 
+        <Route path="/avater" element={<AgentVideoComponent />} />
+  
         {/* <Route path="/frontdesk" element={<FrontDesk />} />  */}
         <Route path="/slver-plan/pdf-view/*" element={<PdfViewPage />} />
       </Routes>

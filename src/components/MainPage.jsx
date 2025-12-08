@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import Chatbot from "./Chatbot";
 import VoiceChatbot from "./audio/voiceChatbot";
 
@@ -13,7 +14,7 @@ const MainPage = () => {
           <img
             src="/InsuraMainPage.png"
             alt="Background"
-            className="w-full h-full object-cover sm:w-69 h-full object-left md:w-69 h-full"
+            className="w-full h-full object-cover sm:w-69 object-left md:w-69"
           />
         </div>
       </div>
@@ -29,6 +30,7 @@ const MainPage = () => {
       <div className="fixed top-5 right-5 bg-white text-gray-800 px-4 py-2 rounded-full shadow-md z-10">
         v.2.9.2.7
       </div>
+
 
       {/* Chatbot Component */}
       <div className="fixed bottom-5 right-5 z-10">

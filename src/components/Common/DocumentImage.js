@@ -37,17 +37,18 @@ const MessageContentRenderer = ({ msg, baseURL }) => {
     return <PDFViewerCard url={msg.text} />;
   }
 
-  // For regular URLs
-  if (msg.text.startsWith("https")) {
+  // For regular URLs (http/https)
+  const trimmed = typeof msg.text === "string" ? msg.text.trim() : "";
+  if (/^https?:\/\//i.test(trimmed)) {
     return (
       <a
-        href={msg.text}
+        href={trimmed}
         target="_blank"
         rel="noopener noreferrer"
         className="text-blue-500 underline"
         style={{ fontSize: '13.4px' }}
       >
-        {msg.text}
+        {trimmed}
       </a>
     );
   }

@@ -177,54 +177,7 @@ const Chatbot = () => {
               is_extracted_info: true,
             });
 
-            let botResponses = [];
-            if (chatResponse.data.response) {
-              botResponses.push({
-                sender: "bot",
-                text: chatResponse.data.response,
-                time: getCurrentTime(),
-                // Preserve metadata for multilingual support
-                message_type: chatResponse.data.message_type,
-                document_type: chatResponse.data.document_type,
-                language: chatResponse.data.language,
-                language_code: chatResponse.data.language_code,
-              });
-            }
-
-            if (chatResponse.data.question) {
-              botResponses.push({
-                sender: "bot",
-                text: chatResponse.data.question,
-                time: getCurrentTime(),
-                // Preserve metadata for multilingual support
-                message_type: chatResponse.data.message_type,
-                document_type: chatResponse.data.document_type,
-                language: chatResponse.data.language,
-                language_code: chatResponse.data.language_code,
-              });
-            }
-
-            if (chatResponse.data.link) {
-              const linkUrl = constructFullUrl(chatResponse.data.link);
-              botResponses.push({
-                sender: "bot",
-                text: linkUrl,
-                time: getCurrentTime(),
-                language: chatResponse.data.language,
-                language_code: chatResponse.data.language_code,
-              });
-            }
-
-            if (chatResponse.data.pdf_link) {
-              const pdfUrl = constructFullUrl(chatResponse.data.pdf_link);
-              botResponses.push({
-                sender: "bot",
-                text: pdfUrl,
-                time: getCurrentTime(),
-                language: chatResponse.data.language,
-                language_code: chatResponse.data.language_code,
-              });
-            }
+            const botResponses = buildBotMessagesFromChatResponse(chatResponse.data);
 
             if (chatResponse.data.dropdown) {
               if (Array.isArray(chatResponse.data.dropdown.options)) {
@@ -489,6 +442,90 @@ const Chatbot = () => {
     return url;
   };
 
+  /** Order: response → link → review_message → review_link → question → example → pdf → document_name */
+  const buildBotMessagesFromChatResponse = (data) => {
+    const botResponses = [];
+    const meta = {
+      message_type: data.message_type,
+      document_type: data.document_type,
+      language: data.language,
+      language_code: data.language_code,
+    };
+
+    if (data.response) {
+      botResponses.push({
+        sender: "bot",
+        text: data.response,
+        time: getCurrentTime(),
+        ...meta,
+      });
+    }
+    if (data.link) {
+      botResponses.push({
+        sender: "bot",
+        text: constructFullUrl(data.link),
+        time: getCurrentTime(),
+        language: data.language,
+        language_code: data.language_code,
+      });
+    }
+    if (data.review_message) {
+      botResponses.push({
+        sender: "bot",
+        text: data.review_message,
+        time: getCurrentTime(),
+        language: data.language,
+        language_code: data.language_code,
+      });
+    }
+    if (data.review_link) {
+      botResponses.push({
+        sender: "bot",
+        text: constructFullUrl(data.review_link),
+        time: getCurrentTime(),
+        language: data.language,
+        language_code: data.language_code,
+        isReviewLink: true,
+      });
+    }
+    if (data.question) {
+      botResponses.push({
+        sender: "bot",
+        text: data.question,
+        time: getCurrentTime(),
+        ...meta,
+      });
+    }
+    if (data.example) {
+      botResponses.push({
+        sender: "bot",
+        text: data.example,
+        time: getCurrentTime(),
+        language: data.language,
+        language_code: data.language_code,
+      });
+    }
+    if (data.pdf_link) {
+      botResponses.push({
+        sender: "bot",
+        text: constructFullUrl(data.pdf_link),
+        time: getCurrentTime(),
+        language: data.language,
+        language_code: data.language_code,
+      });
+    }
+    if (data.document_name) {
+      botResponses.push({
+        sender: "bot",
+        text: `Document ${data.document_name} is ready.`,
+        time: getCurrentTime(),
+        language: data.language,
+        language_code: data.language_code,
+      });
+    }
+    return botResponses;
+  };
+
   const sendHiddenMessage = async () => {
     setLoading(true);
     try {
@@ -530,38 +567,18 @@ const Chatbot = () => {
 
       setMessages((prev) => [
         ...prev,
-        { 
-          sender: "bot", 
-          text: response.data.response, 
-          time: getCurrentTime(),
-          // Preserve metadata for multilingual support
-          message_type: response.data.message_type,
-          document_type: response.data.document_type,
-          language: response.data.language,
-          language_code: response.data.language_code,
-        },
-        ...(response.data.question
-          ? [
-              {
-                sender: "bot",
-                text: response.data.question,
-                time: getCurrentTime(),
-                // Preserve metadata for multilingual support
-                message_type: response.data.message_type,
-                document_type: response.data.document_type,
-                language: response.data.language,
-                language_code: response.data.language_code,
-              },
-            ]
-          : []),
+        ...buildBotMessagesFromChatResponse(response.data),
       ]);
 
       setOptions(
         response.data.options ? response.data.options.split(", ") : []
       );
       setDocumentOptions(
-        response.data.document_options
+        response.data.document_options &&
+          typeof response.data.document_options === "string"
           ? response.data.document_options.split(", ")
+          : Array.isArray(response.data.document_options)
+          ? response.data.document_options
           : []
       );
     } catch (error) {
@@ -695,81 +712,8 @@ const Chatbot = () => {
         is_extracted_info: Boolean(extractedData),
       });
 
-      let botResponses = [];
-      if (response.data.response) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.response,
-          time: getCurrentTime(),
-          // Preserve metadata for multilingual support
-          message_type: response.data.message_type,
-          document_type: response.data.document_type,
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
+      const botResponses = buildBotMessagesFromChatResponse(response.data);
 
-      if (response.data.link) {
-        const linkUrl = constructFullUrl(response.data.link);
-        botResponses.push({
-          sender: "bot",
-          text: linkUrl,
-          time: getCurrentTime(),
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
-
-      if (response.data.question) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.question,
-          time: getCurrentTime(),
-          // Preserve metadata for multilingual support
-          message_type: response.data.message_type,
-          document_type: response.data.document_type,
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
-
-      if (response.data.example) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.example,
-          time: getCurrentTime(),
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
-      if (response.data.review_message) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.review_message,
-          time: getCurrentTime(),
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
-      if (response.data.review_link) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.review_link,
-          time: getCurrentTime(),
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
-      if (response.data.pdf_link) {
-        const pdfUrl = constructFullUrl(response.data.pdf_link);
-        botResponses.push({
-          sender: "bot",
-          text: pdfUrl,
-          time: getCurrentTime(),
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
-      }
       if (response.data.dropdown) {
         if (Array.isArray(response.data.dropdown.options)) {
           setDropdownOptions(response.data.dropdown.options);
@@ -781,16 +725,6 @@ const Chatbot = () => {
         }
       } else {
         setDropdownOptions([]);
-      }
-
-      if (response.data.document_name) {
-        botResponses.push({
-          sender: "bot",
-          text: `Document ${response.data.document_name} is ready.`,
-          time: getCurrentTime(),
-          language: response.data.language,
-          language_code: response.data.language_code,
-        });
       }
 
       setMessages((prev) => [...prev, ...botResponses]);
@@ -805,8 +739,6 @@ const Chatbot = () => {
           ? response.data.document_options
           : []
       );
-
-      console.log(documentOptions);
 
       if (extractedData) {
         setExtractedInfo(null);
@@ -855,46 +787,7 @@ const Chatbot = () => {
         user_id: userId,
       });
 
-      const botResponses = [];
-
-      if (response.data.response) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.response,
-          time: getCurrentTime(),
-          // Preserve metadata for multilingual support
-          message_type: response.data.message_type,
-          document_type: response.data.document_type,
-        });
-      }
-
-      if (response.data.question) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.question,
-          time: getCurrentTime(),
-          // Preserve metadata for multilingual support
-          message_type: response.data.message_type,
-          document_type: response.data.document_type,
-        });
-      }
-
-      if (response.data.review_link) {
-        botResponses.push({
-          sender: "bot",
-          text: response.data.review_link,
-          time: getCurrentTime(),
-        });
-      }
-
-      if (response.data.pdf_link) {
-        const pdfUrl = constructFullUrl(response.data.pdf_link);
-        botResponses.push({
-          sender: "bot",
-          text: pdfUrl,
-          time: getCurrentTime(),
-        });
-      }
+      const botResponses = buildBotMessagesFromChatResponse(response.data);
 
       if (response.data.dropdown) {
         if (Array.isArray(response.data.dropdown.options)) {
@@ -907,14 +800,6 @@ const Chatbot = () => {
         }
       } else {
         setDropdownOptions([]);
-      }
-
-      if (response.data.document_name) {
-        botResponses.push({
-          sender: "bot",
-          text: `Document ${response.data.document_name} is ready.`,
-          time: getCurrentTime(),
-        });
       }
 
       setMessages((prev) => [...prev, ...botResponses]);
@@ -966,34 +851,18 @@ const Chatbot = () => {
 
       setMessages((prev) => [
         ...prev,
-        { 
-          sender: "bot", 
-          text: response.data.response, 
-          time: getCurrentTime(),
-          // Preserve metadata for multilingual support
-          message_type: response.data.message_type,
-          document_type: response.data.document_type,
-        },
-        ...(response.data.question
-          ? [
-              {
-                sender: "bot",
-                text: response.data.question,
-                time: getCurrentTime(),
-                // Preserve metadata for multilingual support
-                message_type: response.data.message_type,
-                document_type: response.data.document_type,
-              },
-            ]
-          : []),
+        ...buildBotMessagesFromChatResponse(response.data),
       ]);
 
       setOptions(
         response.data.options ? response.data.options.split(", ") : []
       );
       setDocumentOptions(
-        response.data.document_options
+        response.data.document_options &&
+          typeof response.data.document_options === "string"
           ? response.data.document_options.split(", ")
+          : Array.isArray(response.data.document_options)
+          ? response.data.document_options
           : []
       );
     } catch (error) {
@@ -1199,10 +1068,12 @@ const Chatbot = () => {
                   msg.sender === "bot" ? "text-left" : "text-right"
                 }`}
               >
-                {/* Check if the message is a review link or PDF link */}
+                {/* Review link from API uses isReviewLink; fallback heuristic for older messages */}
                 {msg.sender === "bot" &&
-                msg.text.includes("review") &&
-                msg.text.startsWith("http") ? (
+                msg.text &&
+                (msg.isReviewLink ||
+                  (msg.text.includes("review") &&
+                    msg.text.startsWith("http"))) ? (
                   <ReviewLinkCard url={msg.text} />
                 ) : msg.sender === "bot" &&
                   msg.text.startsWith("http") &&

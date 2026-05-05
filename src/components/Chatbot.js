@@ -7,7 +7,118 @@ import DocumentAnalysisLoading from "./Common/DocumentAnalysisLoading";
 import CustomDropdown from "./Common/CustomDropdown";
 import ReviewLinkCard from "./Common/ReviewLinkCard";
 import PDFViewerCard from "./Common/PDFViewerCard";
+import GeneralDocumentDownloadCard from "./Common/GeneralDocumentDownloadCard";
 import { getTranslation, detectLanguageFromMessages } from "../services/language";
+
+/** Backend document_upload_request → extract/upload endpoints (same map as determineEndpoint). */
+const DOCUMENT_UPLOAD_EXTRACT_ENDPOINTS = {
+  emirates_id_front: "/extract-front-page-emirate/",
+  emirates_id_back: "/extract-back-page-emirate/",
+  driving_license: "/extract-licence/",
+  mulkiya: "/extract-mulkiya/",
+  /** Alternate backend keys for Mulkiya / vehicle registration */
+  vehicle_registration: "/extract-mulkiya/",
+  vehicle_registration_card: "/extract-mulkiya/",
+  excel: "/upload-excel/",
+  emirates_id: "/extract-emirate/",
+};
+
+/** Ensures /chat/ receives document_type when is_extracted_info is true (backend validation). */
+const EXTRACT_ENDPOINT_TO_CHAT_DOCUMENT_TYPE = {
+  "/extract-mulkiya/": "mulkiya",
+  "/extract-licence/": "driving_license",
+  "/extract-front-page-emirate/": "emirates_id_front",
+  "/extract-back-page-emirate/": "emirates_id_back",
+  "/extract-emirate/": "emirates_id",
+};
+
+/** Backend copy is often "Vehicle Registration Card (Mulkiya)" — not "Please Upload Mulkiya". */
+const botTextRequestsMulkiyaUpload = (text) => {
+  if (!text || typeof text !== "string") return false;
+  const t = text.toLowerCase();
+  const aboutMulkiya =
+    t.includes("mulkiya") ||
+    (t.includes("vehicle") && t.includes("registration"));
+  if (!aboutMulkiya) return false;
+  const asksUpload =
+    t.includes("upload") ||
+    t.includes("attach") ||
+    t.includes("required documents");
+  const legacyPhrasing =
+    t.includes("please upload mulkiya") ||
+    t.includes("move on to: please upload mulkiya") ||
+    t.includes("let's move back to please upload mulkiya");
+  return asksUpload || legacyPhrasing;
+};
+
+const botTextConfirmsMulkiyaUploaded = (text) => {
+  if (!text || typeof text !== "string") return false;
+  const t = text.toLowerCase();
+  if (!t.includes("thank you")) return false;
+  if (t.includes("please upload") || t.includes("upload required")) {
+    return false;
+  }
+  return (
+    t.includes("mulkiya") ||
+    t.includes("vehicle registration") ||
+    (t.includes("vehicle") && t.includes("registration"))
+  );
+};
+
+const isClaimFlowMessage = (msg) => msg?.flow_type === "claim";
+
+const normalizeMessageText = (text) =>
+  typeof text === "string" ? text.toLowerCase() : "";
+
+const botTextRequestsDrivingLicenseUpload = (text) => {
+  const t = normalizeMessageText(text);
+  if (!t || !t.includes("driving license")) return false;
+  return t.includes("please upload") || t.includes("upload your valid");
+};
+
+const botTextConfirmsDrivingLicenseUploaded = (text) => {
+  const t = normalizeMessageText(text);
+  return t.includes("thank you for uploading your driving license");
+};
+
+const botTextRequestsEmiratesIdUpload = (text) => {
+  const t = normalizeMessageText(text);
+  if (!t || !t.includes("emirates id")) return false;
+  return t.includes("please upload");
+};
+
+const botTextRequestsPoliceVerificationUpload = (text) => {
+  const t = normalizeMessageText(text);
+  return (
+    t.includes("please upload") &&
+    t.includes("police verification") &&
+    t.includes("incident")
+  );
+};
+
+const botTextRequestsInsuranceCardUpload = (text) => {
+  const t = normalizeMessageText(text);
+  return t.includes("please upload") && t.includes("insurance card");
+};
+
+const GENERAL_INSURANCE_FORM_UPLOAD_TYPE = "general_insurance_form";
+
+const isGeneralInsuranceFlow = (msg) =>
+  msg?.flow_type === "general_insurance" ||
+  msg?.upload_category === "general_insurance";
+
+/** General-insurance uploads that use /upload-document/ (not OCR extract endpoints). */
+const GENERAL_INSURANCE_UPLOAD_DOCUMENT_TYPES = new Set([
+  "trade_license",
+  "vat_certificate",
+]);
+
+const isGeneralInsuranceUploadDocumentRequest = (msg) =>
+  msg?.sender === "bot" &&
+  msg?.message_type === "document_upload_request" &&
+  msg?.document_type &&
+  GENERAL_INSURANCE_UPLOAD_DOCUMENT_TYPES.has(msg.document_type) &&
+  isGeneralInsuranceFlow(msg);
 
 const Chatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -19,6 +130,12 @@ const Chatbot = () => {
   const [userId, setUserId] = useState("");
   const [awaitingName, setAwaitingName] = useState(false);
   const messagesEndRef = useRef(null);
+  /** Set when /chat returns general_link; cleared after successful /upload-document/ upload. */
+  const pendingGeneralInsuranceUploadRef = useRef(null);
+  /** Which /upload-document/ variant ran (general form vs trade licence); set before POST, cleared after /chat follow-up. */
+  const uploadDocumentContextRef = useRef(null);
+  /** Last OCR/extract endpoint that succeeded; used to attach document_type on /chat/ payload. */
+  const lastSuccessfulExtractEndpointRef = useRef(null);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [extractedInfo, setExtractedInfo] = useState(null);
   const [editingField, setEditingField] = useState(null);
@@ -107,6 +224,7 @@ const Chatbot = () => {
         await uploadFile(uploadedFile);
       }
     } catch (error) {
+      lastSuccessfulExtractEndpointRef.current = null;
       console.error("Error details:", {
         message: error.message,
         response: error.response,
@@ -134,24 +252,268 @@ const Chatbot = () => {
   
     // Helper function to upload the file
     async function uploadFile(fileToUpload) {
+      const recentMessages = [...messages].reverse();
+      const lastBotMessage = recentMessages.find((msg) => msg.sender === "bot");
+
+      let uploadDocumentFileLabel = null;
       const formData = new FormData();
-      formData.append("file", fileToUpload);
-      formData.append("user_id", userId);
-  
-      // Debug log
-      console.log("FormData contents:", ...formData);
-  
-      // Determine document type and appropriate endpoint
-      const endpoint = determineEndpoint(fileToUpload);
-  
-      // Make API call
+      let endpoint;
+
+      const pendingGeneral = pendingGeneralInsuranceUploadRef.current;
+
+      let resolvedExplicitEndpoint =
+        lastBotMessage?.message_type === "document_upload_request" &&
+        lastBotMessage.document_type &&
+        DOCUMENT_UPLOAD_EXTRACT_ENDPOINTS[lastBotMessage.document_type];
+
+      // Backend often sends document_type "excel" with general_link; that flow must use /upload-document/, not /upload-excel/
+      if (
+        resolvedExplicitEndpoint === "/upload-excel/" &&
+        pendingGeneral
+      ) {
+        resolvedExplicitEndpoint = null;
+      }
+
+      const generalInsuranceDocUpload =
+        lastBotMessage &&
+        isGeneralInsuranceUploadDocumentRequest(lastBotMessage);
+      const claimPoliceVerificationUpload =
+        lastBotMessage &&
+        isClaimFlowMessage(lastBotMessage) &&
+        botTextRequestsPoliceVerificationUpload(lastBotMessage.text);
+      const claimInsuranceCardUpload =
+        lastBotMessage &&
+        isClaimFlowMessage(lastBotMessage) &&
+        botTextRequestsInsuranceCardUpload(lastBotMessage.text);
+
+      if (resolvedExplicitEndpoint) {
+        pendingGeneralInsuranceUploadRef.current = null;
+        endpoint = resolvedExplicitEndpoint;
+        formData.append("file", fileToUpload);
+        formData.append("user_id", userId);
+        console.log(
+          `[Upload routing] document_upload_request (${lastBotMessage.document_type}) → ${endpoint}`
+        );
+      } else if (generalInsuranceDocUpload) {
+        pendingGeneralInsuranceUploadRef.current = null;
+        endpoint = "/upload-document/";
+        const docType = lastBotMessage.document_type;
+        uploadDocumentFileLabel =
+          fileToUpload.name?.trim() || docType || "document";
+        const uploadType =
+          lastBotMessage.upload_type || docType || "document";
+        uploadDocumentContextRef.current = {
+          variant: docType,
+          fileLabel: uploadDocumentFileLabel,
+        };
+        formData.append("user_id", userId);
+        formData.append("type", uploadType);
+        formData.append("file_name", uploadDocumentFileLabel);
+        formData.append("file", fileToUpload);
+        if (lastBotMessage.upload_category) {
+          formData.append("upload_category", lastBotMessage.upload_category);
+        }
+        if (lastBotMessage.flow_type) {
+          formData.append("flow_type", lastBotMessage.flow_type);
+        }
+        console.log(
+          `[Upload routing] general_insurance ${docType} → /upload-document/`
+        );
+      } else if (pendingGeneralInsuranceUploadRef.current) {
+        endpoint = "/upload-document/";
+        const pending = pendingGeneralInsuranceUploadRef.current;
+        uploadDocumentFileLabel =
+          fileToUpload.name?.trim() ||
+          suggestedFilledFileName(pending.templateFileName);
+        uploadDocumentContextRef.current = {
+          variant: "general_insurance_form",
+          fileLabel: uploadDocumentFileLabel,
+          finalResponses: pending.finalResponses ?? null,
+        };
+        formData.append("user_id", userId);
+        formData.append("type", GENERAL_INSURANCE_FORM_UPLOAD_TYPE);
+        formData.append("file_name", uploadDocumentFileLabel);
+        formData.append("file", fileToUpload);
+        console.log("[Upload routing] general_link pending → /upload-document/");
+      } else if (claimPoliceVerificationUpload) {
+        endpoint = "/upload-document/";
+        uploadDocumentFileLabel = fileToUpload.name?.trim() || "document";
+        uploadDocumentContextRef.current = {
+          variant: "claim_police_verification",
+          fileLabel: uploadDocumentFileLabel,
+        };
+        formData.append("user_id", userId);
+        formData.append("type", "police_verification");
+        formData.append("file_name", uploadDocumentFileLabel);
+        formData.append("file", fileToUpload);
+        formData.append("flow_type", "claim");
+        console.log("[Upload routing] claim police verification → /upload-document/");
+      } else if (claimInsuranceCardUpload) {
+        endpoint = "/upload-document/";
+        uploadDocumentFileLabel = fileToUpload.name?.trim() || "document";
+        uploadDocumentContextRef.current = {
+          variant: "claim_insurance_card",
+          fileLabel: uploadDocumentFileLabel,
+        };
+        formData.append("user_id", userId);
+        formData.append("type", "insurance_card");
+        formData.append("file_name", uploadDocumentFileLabel);
+        formData.append("file", fileToUpload);
+        formData.append("flow_type", "claim");
+        console.log("[Upload routing] claim insurance card → /upload-document/");
+      } else {
+        endpoint = determineEndpoint(fileToUpload);
+        formData.append("file", fileToUpload);
+        formData.append("user_id", userId);
+      }
+
+      console.log("Upload endpoint:", endpoint);
+
       const response = await axiosInstance.post(endpoint, formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
         retries: 3,
       });
-  
+
+      // /upload-document/ (filled general-insurance Excel or trade licence in general flow) → /chat/
+      if (endpoint === "/upload-document/") {
+        const ctx = uploadDocumentContextRef.current;
+        uploadDocumentContextRef.current = null;
+        pendingGeneralInsuranceUploadRef.current = null;
+
+        const fileLabel =
+          ctx?.fileLabel ||
+          uploadDocumentFileLabel ||
+          suggestedFilledFileName("");
+
+        const userUploadLine =
+          ctx?.variant === "trade_license"
+            ? `Uploaded trade licence: ${fileLabel}`
+            : ctx?.variant === "vat_certificate"
+              ? `Uploaded VAT certificate: ${fileLabel}`
+              : ctx?.variant === "claim_police_verification"
+                ? `Uploaded police verification document: ${fileLabel}`
+                : ctx?.variant === "claim_insurance_card"
+                  ? `Uploaded insurance card: ${fileLabel}`
+              : `Uploaded filled form: ${fileLabel}`;
+
+        setAnalysisStage("complete");
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "user",
+            text: userUploadLine,
+            time: getCurrentTime(),
+          },
+        ]);
+        setTimeout(() => setAnalysisStage(null), 500);
+
+        setTimeout(async () => {
+          try {
+            setLoading(true);
+            const chatBody =
+              ctx?.variant === "trade_license"
+                ? {
+                    message: JSON.stringify({
+                      event: "trade_license_uploaded",
+                      file_name: fileLabel,
+                      flow_type: "general_insurance",
+                      document_type: "trade_license",
+                    }),
+                    user_id: userId,
+                    is_extracted_info: true,
+                  }
+                : ctx?.variant === "vat_certificate"
+                  ? {
+                      message: JSON.stringify({
+                        event: "vat_certificate_uploaded",
+                        file_name: fileLabel,
+                        flow_type: "general_insurance",
+                        document_type: "vat_certificate",
+                      }),
+                      user_id: userId,
+                      is_extracted_info: true,
+                    }
+                  : ctx?.variant === "claim_police_verification"
+                    ? {
+                        message: JSON.stringify({
+                          event: "claim_police_verification_uploaded",
+                          file_name: fileLabel,
+                          flow_type: "claim",
+                          document_type: "police_verification",
+                        }),
+                        user_id: userId,
+                        is_extracted_info: true,
+                      }
+                  : ctx?.variant === "claim_insurance_card"
+                    ? {
+                        message: JSON.stringify({
+                          event: "claim_insurance_card_uploaded",
+                          file_name: fileLabel,
+                          flow_type: "claim",
+                          document_type: "insurance_card",
+                        }),
+                        user_id: userId,
+                        is_extracted_info: true,
+                      }
+                  : {
+                      message: JSON.stringify({
+                        event: "general_insurance_form_uploaded",
+                        file_name: fileLabel,
+                        final_responses: ctx?.finalResponses ?? null,
+                      }),
+                      user_id: userId,
+                      is_extracted_info: true,
+                    };
+
+            const chatResponse = await axiosInstance.post("/chat/", chatBody);
+
+            const botResponses = buildBotMessagesFromChatResponse(chatResponse.data);
+
+            if (chatResponse.data.dropdown) {
+              if (Array.isArray(chatResponse.data.dropdown.options)) {
+                setDropdownOptions(chatResponse.data.dropdown.options);
+                if (chatResponse.data.dropdown.placeholder) {
+                  setDropdownPlaceholder(chatResponse.data.dropdown.placeholder);
+                }
+              } else if (typeof chatResponse.data.dropdown === "string") {
+                setDropdownOptions(chatResponse.data.dropdown.split(", "));
+              }
+            } else {
+              setDropdownOptions([]);
+            }
+
+            setMessages((prev) => [...prev, ...botResponses]);
+            setOptions(
+              chatResponse.data.options ? chatResponse.data.options.split(", ") : []
+            );
+            setDocumentOptions(
+              chatResponse.data.document_options &&
+                typeof chatResponse.data.document_options === "string"
+                ? chatResponse.data.document_options.split(", ")
+                : Array.isArray(chatResponse.data.document_options)
+                ? chatResponse.data.document_options
+                : []
+            );
+          } catch (error) {
+            console.error("Error continuing chat after general insurance upload:", error);
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: "bot",
+                text: "Form uploaded but failed to continue. Please send a message or try again.",
+                time: getCurrentTime(),
+              },
+            ]);
+          } finally {
+            setLoading(false);
+          }
+        }, 600);
+
+        return;
+      }
+
       // Excel uploads: do not show detailed data in chat, but send to backend
       if (endpoint === "/upload-excel/") {
         console.log("[upload-excel] Full response:", response);
@@ -223,6 +585,7 @@ const Chatbot = () => {
       }
 
       // Non-excel: proceed to show extracted information
+      lastSuccessfulExtractEndpointRef.current = endpoint;
       setAnalysisStage("complete");
       console.log("Extracted Information:", response.data);
       setExtractedInfo(response.data);
@@ -241,17 +604,8 @@ const Chatbot = () => {
   
       // First, check if we have metadata from the backend (recommended approach)
       if (lastBotMessage && lastBotMessage.message_type === "document_upload_request") {
-        // Use document_type to determine endpoint - language independent!
-        const docTypeToEndpoint = {
-          'emirates_id_front': '/extract-front-page-emirate/',
-          'emirates_id_back': '/extract-back-page-emirate/',
-          'driving_license': '/extract-licence/',
-          'mulkiya': '/extract-mulkiya/',
-          'excel': '/upload-excel/',
-          'emirates_id': '/extract-emirate/',  // Default emirates ID endpoint
-        };
-        
-        const endpoint = docTypeToEndpoint[lastBotMessage.document_type];
+        const endpoint =
+          DOCUMENT_UPLOAD_EXTRACT_ENDPOINTS[lastBotMessage.document_type];
         if (endpoint) {
           console.log(`[Metadata-based routing] Using endpoint: ${endpoint} for document_type: ${lastBotMessage.document_type}`);
           return endpoint;
@@ -271,6 +625,15 @@ const Chatbot = () => {
         if (isExcelRequest(lastBotMessage.text)) {
           return "/upload-excel/";
         }
+        if (isClaimFlowMessage(lastBotMessage) && botTextRequestsPoliceVerificationUpload(lastBotMessage.text)) {
+          return "/upload-document/";
+        }
+        if (isClaimFlowMessage(lastBotMessage) && botTextRequestsInsuranceCardUpload(lastBotMessage.text)) {
+          return "/upload-document/";
+        }
+        if (botTextRequestsEmiratesIdUpload(lastBotMessage.text)) {
+          return "/extract-emirate/";
+        }
         if (
           lastBotMessage.text.includes(
             "Please Upload Front Page of Your Document"
@@ -278,24 +641,10 @@ const Chatbot = () => {
         ) {
           return "/extract-front-page-emirate/";
         }
-        if (
-          lastBotMessage.text.includes("Please Upload Your Driving license") ||
-          lastBotMessage.text.includes(
-            "Let's move back to Please Upload Your Driving license"
-          ) ||
-          lastBotMessage.text.includes(
-            "Thank you, Please upload your driving license"
-          )
-        ) {
+        if (botTextRequestsDrivingLicenseUpload(lastBotMessage.text)) {
           return "/extract-licence/";
         }
-        if (
-          lastBotMessage.text.includes("Please Upload Mulkiya") ||
-          lastBotMessage.text.includes(
-            "Let's Move back to Please Upload Mulkiya"
-          ) ||
-          lastBotMessage.text.includes("move on to: Please Upload Mulkiya")
-        ) {
+        if (botTextRequestsMulkiyaUpload(lastBotMessage.text)) {
           return "/extract-mulkiya/";
         }
         if (
@@ -314,31 +663,23 @@ const Chatbot = () => {
       const licenseRequested = messages.some(
         (msg) =>
           msg.sender === "bot" &&
-          (msg.text.includes("Please Upload Your Driving license") ||
-            msg.text.includes(
-              "Let's move back to Please Upload Your Driving license"
-            ) ||
-            msg.text.includes("Thank you, Please upload your driving license"))
+          botTextRequestsDrivingLicenseUpload(msg.text)
       );
   
       const licenseCompleted = messages.some(
         (msg) =>
           msg.sender === "bot" &&
-          msg.text.includes("Thank you for uploading the Driving license")
+          botTextConfirmsDrivingLicenseUploaded(msg.text)
       );
   
       const mulkiyaRequested = messages.some(
         (msg) =>
-          msg.sender === "bot" &&
-          (msg.text.includes("Please Upload Mulkiya") ||
-            msg.text.includes("Let's Move back to Please Upload Mulkiya") ||
-            msg.text.includes("move on to: Please Upload Mulkiya"))
+          msg.sender === "bot" && botTextRequestsMulkiyaUpload(msg.text)
       );
-  
+
       const mulkiyaCompleted = messages.some(
         (msg) =>
-          msg.sender === "bot" &&
-          msg.text.includes("Thank you for uploading the Mulkiya")
+          msg.sender === "bot" && botTextConfirmsMulkiyaUploaded(msg.text)
       );
   
       const emirateBackPageRequested = messages.some(
@@ -384,6 +725,8 @@ const Chatbot = () => {
           'emirates_id_back': 'Thank you for uploading the Back Page',
           'driving_license': 'Thank you for uploading the Driving license',
           'mulkiya': 'Thank you for uploading the Mulkiya',
+          vehicle_registration: 'Thank you for uploading the Mulkiya',
+          vehicle_registration_card: 'Thank you for uploading the Mulkiya',
           'excel': 'Thank you for uploading the Excel file',
           'emirates_id': 'Thank you for uploading the Emirates ID',
         };
@@ -442,7 +785,41 @@ const Chatbot = () => {
     return url;
   };
 
-  /** Order: response → link → review_message → review_link → question → example → pdf → document_name */
+  const resolveGeneralDocumentUrl = (generalLink) => {
+    if (!generalLink || typeof generalLink !== "string") return "";
+    const trimmed = generalLink.trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return `${baseURL}${path}`;
+  };
+
+  const filenameFromGeneralLink = (generalLink) => {
+    try {
+      const trimmed = (generalLink || "").trim();
+      if (!trimmed) return "document";
+      const path = /^https?:\/\//i.test(trimmed)
+        ? new URL(trimmed).pathname
+        : trimmed.startsWith("/")
+          ? trimmed
+          : `/${trimmed}`;
+      const last = path.split("/").filter(Boolean).pop();
+      return last ? decodeURIComponent(last) : "document";
+    } catch {
+      return "document";
+    }
+  };
+
+  /** e.g. Travel Insurance.XLSX → Travel Insurance filled.xlsx */
+  const suggestedFilledFileName = (templateFileName) => {
+    const name = templateFileName || "document";
+    const match = name.match(/^(.+?)(\.[^.]+)?$/i);
+    const base = (match?.[1] ? match[1] : name.replace(/\.[^/.]+$/, "")).trim();
+    const ext = match?.[2] ? match[2].toLowerCase() : ".xlsx";
+    return `${base} filled${ext}`;
+  };
+
+  /** Order: response → link → general_link → review_message → review_link → question → example → pdf → document_name */
   const buildBotMessagesFromChatResponse = (data) => {
     const botResponses = [];
     const meta = {
@@ -450,6 +827,9 @@ const Chatbot = () => {
       document_type: data.document_type,
       language: data.language,
       language_code: data.language_code,
+      ...(data.flow_type != null && { flow_type: data.flow_type }),
+      ...(data.upload_category != null && { upload_category: data.upload_category }),
+      ...(data.upload_type != null && { upload_type: data.upload_type }),
     };
 
     if (data.response) {
@@ -468,6 +848,25 @@ const Chatbot = () => {
         language: data.language,
         language_code: data.language_code,
       });
+    }
+    if (data.general_link) {
+      const generalFilename = filenameFromGeneralLink(data.general_link);
+      pendingGeneralInsuranceUploadRef.current = {
+        templateFileName: generalFilename,
+        finalResponses: data.final_responses ?? null,
+      };
+      const fullUrl = resolveGeneralDocumentUrl(data.general_link);
+      if (fullUrl) {
+        botResponses.push({
+          sender: "bot",
+          text: generalFilename,
+          time: getCurrentTime(),
+          language: data.language,
+          language_code: data.language_code,
+          generalDownloadUrl: fullUrl,
+          generalDownloadFilename: generalFilename,
+        });
+      }
     }
     if (data.review_message) {
       botResponses.push({
@@ -657,7 +1056,23 @@ const Chatbot = () => {
 
     const formatMessageText = (extractedData, input) => {
       if (extractedData) {
-        return JSON.stringify(sanitizeData(extractedData));
+        const sanitized = sanitizeData(extractedData);
+        const endpoint = lastSuccessfulExtractEndpointRef.current;
+        const docType =
+          endpoint && EXTRACT_ENDPOINT_TO_CHAT_DOCUMENT_TYPE[endpoint];
+        if (
+          docType &&
+          sanitized &&
+          typeof sanitized === "object" &&
+          !Array.isArray(sanitized)
+        ) {
+          const payload = {
+            ...sanitized,
+            document_type: sanitized.document_type ?? docType,
+          };
+          return JSON.stringify(payload);
+        }
+        return JSON.stringify(sanitized);
       }
       return input ? input.trim() : "";
     };
@@ -742,6 +1157,7 @@ const Chatbot = () => {
 
       if (extractedData) {
         setExtractedInfo(null);
+        lastSuccessfulExtractEndpointRef.current = null;
       }
     } catch (error) {
       console.error("Error sending message:", error);
@@ -1068,8 +1484,14 @@ const Chatbot = () => {
                   msg.sender === "bot" ? "text-left" : "text-right"
                 }`}
               >
-                {/* Review link from API uses isReviewLink; fallback heuristic for older messages */}
-                {msg.sender === "bot" &&
+                {/* general_link → button download; review_link uses isReviewLink or URL heuristic */}
+                {msg.sender === "bot" && msg.generalDownloadUrl ? (
+                  <GeneralDocumentDownloadCard
+                    url={msg.generalDownloadUrl}
+                    filename={msg.generalDownloadFilename || msg.text}
+                    time={msg.time}
+                  />
+                ) : msg.sender === "bot" &&
                 msg.text &&
                 (msg.isReviewLink ||
                   (msg.text.includes("review") &&

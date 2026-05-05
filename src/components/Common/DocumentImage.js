@@ -1,12 +1,20 @@
 import React from 'react';
 import PDFViewerCard from './PDFViewerCard';
 
+/** Backend copy sometimes says "InsuranceClub"; UI brand is Insura. */
+const normalizeInsuranceBrandCopy = (t) =>
+  typeof t === 'string'
+    ? t.replaceAll(/\bInsuranceClub\b/g, 'Insura')
+    : t;
+
 const MessageContentRenderer = ({ msg, baseURL }) => {
+  const displayText = normalizeInsuranceBrandCopy(msg.text);
+
   // For upload document message with image (front page)
   if (msg.text === "Thank you for the responses! Now, Please Upload Your Document") {
     return (
       <div className="flex flex-col items-center">
-        <p>{msg.text}</p>
+        <p>{displayText}</p>
         <p className="text-sm text-gray-500 mt-1">Please upload the document like this.</p>
         <img
           src="emirates-front.jpeg"
@@ -21,7 +29,7 @@ const MessageContentRenderer = ({ msg, baseURL }) => {
   if (msg.text.includes("Please Upload Back Page of Your Document")) {
     return (
       <div className="flex flex-col items-center">
-        <p>{msg.text}</p>
+        <p>{displayText}</p>
         <p className="text-sm text-gray-500 mt-1">Please upload the document like this.</p>
         <img
           src="back.jpeg"
@@ -54,7 +62,7 @@ const MessageContentRenderer = ({ msg, baseURL }) => {
   }
 
   // Default case: regular text
-  return msg.text;
+  return displayText;
 };
 
 export default MessageContentRenderer;

@@ -28,7 +28,7 @@ const MainPage = () => {
 
       {/* Version Number */}
       <div className="fixed top-5 right-5 bg-white text-gray-800 px-4 py-2 rounded-full shadow-md z-10">
-        v.2.10.1
+        v.2.10.2
       </div>
 
 

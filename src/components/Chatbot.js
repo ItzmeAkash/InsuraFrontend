@@ -101,6 +101,15 @@ const botTextRequestsInsuranceCardUpload = (text) => {
   return t.includes("please upload") && t.includes("insurance card");
 };
 
+const botTextRequestsPassingPaperUpload = (text) => {
+  const t = normalizeMessageText(text);
+  return (
+    t.includes("please upload") &&
+    (t.includes("passing paper") ||
+      (t.includes("insurance has expired") && t.includes("passing")))
+  );
+};
+
 const GENERAL_INSURANCE_FORM_UPLOAD_TYPE = "general_insurance_form";
 
 const isGeneralInsuranceFlow = (msg) =>
@@ -285,6 +294,9 @@ const Chatbot = () => {
         lastBotMessage &&
         isClaimFlowMessage(lastBotMessage) &&
         botTextRequestsInsuranceCardUpload(lastBotMessage.text);
+      const passingPaperUpload =
+        lastBotMessage &&
+        botTextRequestsPassingPaperUpload(lastBotMessage.text);
 
       if (resolvedExplicitEndpoint) {
         pendingGeneralInsuranceUploadRef.current = null;
@@ -361,6 +373,25 @@ const Chatbot = () => {
         formData.append("file", fileToUpload);
         formData.append("flow_type", "claim");
         console.log("[Upload routing] claim insurance card → /upload-document/");
+      } else if (passingPaperUpload) {
+        endpoint = "/upload-document/";
+        uploadDocumentFileLabel = fileToUpload.name?.trim() || "document";
+        uploadDocumentContextRef.current = {
+          variant: "passing_paper",
+          fileLabel: uploadDocumentFileLabel,
+          flowType: lastBotMessage?.flow_type ?? null,
+        };
+        formData.append("user_id", userId);
+        formData.append("type", "passing_paper");
+        formData.append("file_name", uploadDocumentFileLabel);
+        formData.append("file", fileToUpload);
+        if (lastBotMessage?.flow_type) {
+          formData.append("flow_type", lastBotMessage.flow_type);
+        }
+        if (lastBotMessage?.upload_category) {
+          formData.append("upload_category", lastBotMessage.upload_category);
+        }
+        console.log("[Upload routing] passing paper → /upload-document/");
       } else {
         endpoint = determineEndpoint(fileToUpload);
         formData.append("file", fileToUpload);
@@ -396,6 +427,8 @@ const Chatbot = () => {
                 ? `Uploaded police verification document: ${fileLabel}`
                 : ctx?.variant === "claim_insurance_card"
                   ? `Uploaded insurance card: ${fileLabel}`
+                  : ctx?.variant === "passing_paper"
+                    ? `Uploaded passing paper: ${fileLabel}`
               : `Uploaded filled form: ${fileLabel}`;
 
         setAnalysisStage("complete");
@@ -453,6 +486,17 @@ const Chatbot = () => {
                           file_name: fileLabel,
                           flow_type: "claim",
                           document_type: "insurance_card",
+                        }),
+                        user_id: userId,
+                        is_extracted_info: true,
+                      }
+                  : ctx?.variant === "passing_paper"
+                    ? {
+                        message: JSON.stringify({
+                          event: "passing_paper_uploaded",
+                          file_name: fileLabel,
+                          ...(ctx?.flowType ? { flow_type: ctx.flowType } : {}),
+                          document_type: "passing_paper",
                         }),
                         user_id: userId,
                         is_extracted_info: true,
@@ -629,6 +673,9 @@ const Chatbot = () => {
           return "/upload-document/";
         }
         if (isClaimFlowMessage(lastBotMessage) && botTextRequestsInsuranceCardUpload(lastBotMessage.text)) {
+          return "/upload-document/";
+        }
+        if (botTextRequestsPassingPaperUpload(lastBotMessage.text)) {
           return "/upload-document/";
         }
         if (botTextRequestsEmiratesIdUpload(lastBotMessage.text)) {
